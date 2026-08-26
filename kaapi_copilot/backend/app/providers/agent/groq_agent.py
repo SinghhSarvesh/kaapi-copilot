@@ -70,23 +70,30 @@ class GroqShoppingAgent(ShoppingAgent):
         upsell_count = 0
 
         for _ in range(5):  # bounded tool loop
-            try:
-                resp = self.client.chat.completions.create(
-                    model=self.model, messages=messages, tools=TOOLS, max_tokens=1024,
-                )
-            except Exception as e:
-                # If the specified model ID fails (e.g. 404), fall back to ultra-fast llama-3.1-8b-instant
-                if "model" in str(e).lower() or "not_found" in str(e).lower():
-                    resp = self.client.chat.completions.create(
-                        model="llama-3.1-8b-instant", messages=messages, tools=TOOLS, max_tokens=1024,
-                    )
-                else:
-                    raise e
-
+            resp = self.client.chat.completions.create(
+                model=self.model, messages=messages, tools=TOOLS, max_tokens=1024,
+            )
             msg = resp.choices[0].message
-            messages.append(msg.model_dump() if hasattr(msg, "model_dump") else msg)
-
             tool_calls = getattr(msg, "tool_calls", None)
+
+            # Build clean assistant message
+            assistant_msg = {"role": "assistant"}
+            if msg.content:
+                assistant_msg["content"] = msg.content
+            if tool_calls:
+                assistant_msg["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in tool_calls
+                ]
+            messages.append(assistant_msg)
+
             if not tool_calls:
                 return AgentResponse(msg.content or "", add_to_cart_skus, upsell_sku, upsell_reason, ready)
 
@@ -105,6 +112,11 @@ class GroqShoppingAgent(ShoppingAgent):
                     upsell_count += 1
                 if tool_name == "ready_to_checkout":
                     ready = True
-                messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)})
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "name": tool_name,
+                    "content": json.dumps(result),
+                })
 
-        return AgentResponse("Sorry, I'm having trouble responding right now.", add_to_cart_skus, upsell_sku, upsell_reason, ready)
+        return AgentResponse("Here is your cart summary. Ready to proceed whenever you are!", add_to_cart_skus, upsell_sku, upsell_reason, ready)

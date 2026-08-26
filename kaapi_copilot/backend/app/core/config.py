@@ -45,7 +45,7 @@ class Settings:
     # ---- AI agent provider ----
     agent_mode_requested: str = field(default_factory=lambda: _env("AGENT_MODE", "mock").lower())
     groq_api_key: str = field(default_factory=lambda: _env("GROQ_API_KEY"))
-    groq_model: str = field(default_factory=lambda: _env("GROQ_MODEL", "llama-3.1-70b-versatile"))
+    groq_model: str = field(default_factory=lambda: _env("GROQ_MODEL", "openai/gpt-oss-120b"))
 
     # ---- Guardrail limits (paise) ----
     session_spend_cap_paise: int = field(default_factory=lambda: _int_env("SESSION_SPEND_CAP_PAISE", 500000))      # ₹5,000
