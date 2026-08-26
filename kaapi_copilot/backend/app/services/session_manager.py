@@ -38,5 +38,10 @@ class SessionManager:
             # The pending upsell was not accepted in this turn — clear it.
             state["pending_upsell"] = None
 
+    def clear_cart(self, session_id: str) -> None:
+        if session_id in self._sessions:
+            self._sessions[session_id]["cart_skus"] = []
+            self._sessions[session_id]["pending_upsell"] = None
+
 
 session_manager = SessionManager()

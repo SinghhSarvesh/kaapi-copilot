@@ -625,6 +625,13 @@ async function triggerWebhook(outcome) {
       </div>
       ${order.failure_reason ? `<div style="color:var(--red);font-size:12px;">Reason: ${order.failure_reason}</div>` : ""}`;
     toast(isPaid ? "Payment captured successfully! 🎉" : `Payment failed: ${order.failure_reason}`, isPaid ? "success" : "error");
+    if (isPaid) {
+      // Clear cart UI & reset mandate for next purchase
+      renderCart([]);
+      currentMandateId = null;
+      document.getElementById("payBtn").disabled = true;
+      addMsg("agent", "🎉 Payment successful! Your fresh roast is on its way. Let me know if you want to explore more blends!");
+    }
     refreshOps();
   } catch (e) { toast(e.message, "error"); }
 }

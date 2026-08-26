@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.providers.payment.factory import get_payment_provider
 from app.services.audit_trail import audit_trail
 from app.services.mandate_engine import mandate_engine, GuardrailError
+from app.services.session_manager import session_manager
 from app.models.domain import Order, PurchaseMandate, new_order_id
 
 
@@ -95,6 +96,7 @@ class OrderService:
             if mandate:
                 mandate.status = "paid"
                 mandate_engine.record_successful_spend(mandate)
+            session_manager.clear_cart(order.session_id)
             audit_trail.log("payment_captured", order.session_id,
                              {"order_id": order.order_id, "payment": payload.get("payment", {})})
         elif event == "payment.failed":
