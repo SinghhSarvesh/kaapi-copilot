@@ -61,11 +61,19 @@ class MockPaymentProvider(PaymentProvider):
         return {"refund_id": refund_id, "payment_id": payment_id,
                 "amount_paise": amount_paise, "status": "processed"}
 
-    def simulate_webhook(self, payment_link_id: str, outcome: str) -> dict:
+    def simulate_webhook(self, payment_link_id: str, outcome: str, order_id: Optional[str] = None, amount_paise: int = 0) -> dict:
         """outcome: 'success' -> payment.captured, 'failure' -> payment.failed"""
         link = self._links.get(payment_link_id)
         if not link:
-            return {"status": "not_found"}
+            # Fallback for real Razorpay mode or untracked links: synthesize link record
+            link = {
+                "payment_link_id": payment_link_id,
+                "order_id": order_id or payment_link_id,
+                "amount_paise": amount_paise,
+                "status": "created",
+            }
+            self._links[payment_link_id] = link
+
         payment_id = self._next_id("pay")
         vpa = "success@razorpay" if outcome == "success" else "failure@razorpay"
         if outcome == "success":

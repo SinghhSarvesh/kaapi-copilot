@@ -171,7 +171,9 @@ def trigger_demo_webhook(order_id: str, outcome: str = "success"):
         raise HTTPException(404, "order not found")
     if order.payment_link_id is None:
         raise HTTPException(500, "order has no payment link")
-    wh = mock_payment_provider.simulate_webhook(order.payment_link_id, outcome)
+    wh = mock_payment_provider.simulate_webhook(
+        order.payment_link_id, outcome, order_id=order.order_id, amount_paise=order.total_paise
+    )
     updated = order_service.handle_webhook_event(wh["event"], wh["payload"])
     return updated.to_dict()
 
