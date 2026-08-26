@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kaapi Copilot — AI Commerce</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+<style>
+  /* ── Design Tokens ── */
+  :root {
+    --bg:         #0d0a08;
+    --surface:    #1a1410;
+    --surface2:   #221c16;
+    --surface3:   #2e251d;
+    --border:     rgba(255,255,255,.07);
+    --amber:      #f5a623;
+    --amber-dim:  #c47d0e;
+    --cream:      #f0e6d3;
+    --muted:      #8a7560;
+    --green:      #3ecf6e;
+    --red:        #e05c5c;
+    --blue:       #5b9cf6;
+    --radius:     14px;
+    --radius-sm:  8px;
+    --font:       'Inter', sans-serif;
+    --font-brand: 'Playfair Display', serif;
+    --glow:       0 0 24px rgba(245,166,35,.18);
+    --shadow:     0 8px 32px rgba(0,0,0,.45);
+    --trans:      .2s cubic-bezier(.4,0,.2,1);
+  }
+
+  /* ── Reset ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--cream);
+    min-height: 100vh;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Grain texture overlay ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='.04'/%3E%3C/svg%3E");
+    opacity: .5;
+  }
+
+  /* ── Layout ── */
+  .app { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 20px 16px 40px; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 0 28px; border-bottom: 1px solid var(--border);
+    margin-bottom: 28px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-icon {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--amber), var(--amber-dim));
+    display: grid; place-items: center; font-size: 22px;
+    box-shadow: var(--glow);
+  }
+  .brand-name { font-family: var(--font-brand); font-size: 22px; color: var(--cream); }
+  .brand-name span { color: var(--amber); }
+  .status-pill {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 6px 14px; font-size: 12px; color: var(--muted);
+    cursor: pointer; transition: var(--trans);
+  }
+  .status-pill:hover { border-color: var(--amber); color: var(--cream); }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media(max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+
+  /* ── Card ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  .card-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface2);
+  }
+  .card-header h3 { font-size: 14px; font-weight: 600; color: var(--cream); }
+  .card-header .label {
+    margin-left: auto; font-size: 11px; font-weight: 500;
+    padding: 2px 8px; border-radius: 999px; letter-spacing: .5px;
+  }
+  .label-a { background: rgba(245,166,35,.15); color: var(--amber); }
+  .label-b { background: rgba(91,156,246,.15); color: var(--blue); }
+  .label-ops { background: rgba(62,207,110,.12); color: var(--green); }
+  .card-body { padding: 16px 20px; }
+
+  /* ── Chat ── */
+  .chat-log {
+    height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
+    padding: 4px 0; margin-bottom: 14px;
+    scrollbar-width: thin; scrollbar-color: var(--surface3) transparent;
+  }
+  .chat-log::-webkit-scrollbar { width: 4px; }
+  .chat-log::-webkit-scrollbar-track { background: transparent; }
+  .chat-log::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 4px; }
+
+  .msg { display: flex; gap: 10px; align-items: flex-end; max-width: 90%; }
+  .msg.buyer { align-self: flex-end; flex-direction: row-reverse; }
+  .msg-avatar {
+    width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 14px;
+  }
+  .msg.agent  .msg-avatar { background: linear-gradient(135deg,var(--amber),var(--amber-dim)); }
+  .msg.buyer  .msg-avatar { background: var(--surface3); border: 1px solid var(--border); }
+  .msg-bubble {
+    padding: 10px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.55;
+    max-width: 100%;
+  }
+  .msg.agent  .msg-bubble {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-bottom-left-radius: 4px; color: var(--cream);
+  }
+  .msg.buyer  .msg-bubble {
+    background: linear-gradient(135deg, var(--amber), var(--amber-dim));
+    border-bottom-right-radius: 4px; color: #1a0d00; font-weight: 500;
+  }
+  .typing-indicator { display: flex; gap: 4px; padding: 12px 14px; align-items: center; }
+  .typing-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--muted);
+    animation: bounce .9s infinite;
+  }
+  .typing-dot:nth-child(2) { animation-delay: .15s; }
+  .typing-dot:nth-child(3) { animation-delay: .3s; }
+  @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-6px)} }
+
+  .chat-input-row { display: flex; gap: 8px; }
+  .chat-input {
+    flex: 1; padding: 11px 14px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--cream); font-size: 14px;
+    font-family: var(--font); transition: var(--trans); outline: none;
+  }
+  .chat-input::placeholder { color: var(--muted); }
+  .chat-input:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(245,166,35,.1); }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 10px 18px; border-radius: var(--radius-sm);
+    font-size: 13px; font-weight: 600; font-family: var(--font);
+    border: none; cursor: pointer; transition: var(--trans); letter-spacing: .3px;
+    white-space: nowrap;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--amber), var(--amber-dim));
+    color: #1a0d00;
+  }
+  .btn-primary:hover { filter: brightness(1.1); box-shadow: var(--glow); }
+  .btn-ghost {
+    background: var(--surface2); color: var(--cream);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { border-color: var(--amber); color: var(--amber); }
+  .btn-danger { background: rgba(224,92,92,.15); color: var(--red); border: 1px solid rgba(224,92,92,.25); }
+  .btn-danger:hover { background: rgba(224,92,92,.25); }
+  .btn-success { background: rgba(62,207,110,.15); color: var(--green); border: 1px solid rgba(62,207,110,.25); }
+  .btn-success:hover { background: rgba(62,207,110,.25); }
+  .btn:disabled { opacity: .38; cursor: not-allowed; filter: none !important; box-shadow: none !important; }
+  .btn-sm { padding: 7px 12px; font-size: 12px; }
+  .btn-icon { padding: 9px; }
+
+  /* ── Cart ── */
+  .cart-section { margin-top: 14px; }
+  .section-label { font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .8px; color: var(--muted); margin-bottom: 8px; }
+  .cart-items { display: flex; flex-direction: column; gap: 6px; }
+  .cart-item {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 10px 12px;
+    font-size: 13px; transition: var(--trans);
+  }
+  .cart-item-icon { font-size: 18px; }
+  .cart-item-name { flex: 1; font-weight: 500; color: var(--cream); }
+  .cart-item-price { color: var(--amber); font-weight: 600; font-size: 13px; }
+  .cart-empty { color: var(--muted); font-size: 13px; font-style: italic; padding: 10px 0; }
+
+  /* ── Mandate ── */
+  .mandate-box {
+    margin-top: 12px; background: var(--surface2);
+    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px;
+    font-size: 13px;
+  }
+  .mandate-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .mandate-id { font-family: monospace; font-size: 11px; color: var(--muted); }
+  .mandate-total { font-size: 18px; font-weight: 700; color: var(--amber); }
+  .policy-checks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  }
+  .badge-pass { background: rgba(62,207,110,.15); color: var(--green); border: 1px solid rgba(62,207,110,.2); }
+  .badge-fail { background: rgba(224,92,92,.15); color: var(--red); border: 1px solid rgba(224,92,92,.2); }
+  .badge-pending { background: rgba(245,166,35,.15); color: var(--amber); border: 1px solid rgba(245,166,35,.2); }
+  .badge-blocked { background: rgba(224,92,92,.2); color: var(--red); border: 1px solid rgba(224,92,92,.35); }
+
+  .action-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
+  /* ── Order result ── */
+  .order-box {
+    margin-top: 12px; padding: 14px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); background: var(--surface2); font-size: 13px;
+  }
+  .order-link { color: var(--blue); text-decoration: none; word-break: break-all; }
+  .order-link:hover { text-decoration: underline; }
+
+  /* ── Ops panel ── */
+  .chain-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .chain-valid   { background: rgba(62,207,110,.12); color: var(--green); border: 1px solid rgba(62,207,110,.25); }
+  .chain-invalid { background: rgba(224,92,92,.12); color: var(--red);   border: 1px solid rgba(224,92,92,.25); }
+
+  .audit-timeline { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;
+    scrollbar-width: thin; scrollbar-color: var(--surface3) transparent; }
+  .audit-event {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 8px 10px; border-radius: var(--radius-sm);
+    border: 1px solid transparent; font-size: 12px;
+    transition: var(--trans); cursor: default;
+  }
+  .audit-event:hover { background: var(--surface2); border-color: var(--border); }
+  .audit-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); flex-shrink: 0; margin-top: 5px; }
+  .audit-type { font-weight: 600; color: var(--cream); min-width: 160px; }
+  .audit-sess { color: var(--muted); font-family: monospace; font-size: 11px; }
+  .audit-ts   { color: var(--muted); font-size: 10px; margin-left: auto; white-space: nowrap; }
+
+  /* ── Analytics ── */
+  .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+  .stat-card {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 12px 14px;
+  }
+  .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .stat-value { font-size: 22px; font-weight: 700; color: var(--cream); margin-top: 2px; }
+  .stat-value.amber { color: var(--amber); }
+  .stat-value.green { color: var(--green); }
+  .stat-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+  /* ── Journey B ── */
+  .journey-b { margin-top: 20px; }
+  .steps { display: flex; flex-direction: column; gap: 0; margin-top: 12px; }
+  .step {
+    display: flex; gap: 14px; align-items: flex-start;
+    opacity: .35; transition: opacity .4s;
+  }
+  .step.done   { opacity: 1; }
+  .step.active { opacity: 1; }
+  .step-line { display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .step-node {
+    width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 13px;
+    border: 2px solid var(--surface3); background: var(--surface2);
+    transition: var(--trans); z-index: 1;
+  }
+  .step.done   .step-node { background: var(--green); border-color: var(--green); color: #000; }
+  .step.active .step-node { border-color: var(--amber); animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .step-connector { width: 2px; flex: 1; min-height: 20px; background: var(--surface3); margin: 2px 0; }
+  .step-content { padding-bottom: 16px; padding-top: 4px; }
+  .step-title { font-size: 13px; font-weight: 600; color: var(--cream); }
+  .step-detail { font-size: 12px; color: var(--muted); margin-top: 2px; font-family: monospace; }
+
+  /* ── Toasts ── */
+  .toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; }
+  .toast {
+    min-width: 260px; max-width: 360px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 12px 16px;
+    font-size: 13px; box-shadow: var(--shadow);
+    animation: slideUp .25s cubic-bezier(.4,0,.2,1);
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .toast.error   { border-left: 3px solid var(--red);   }
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.info    { border-left: 3px solid var(--amber); }
+  .toast-icon { font-size: 16px; flex-shrink: 0; }
+  .toast-msg { flex: 1; color: var(--cream); line-height: 1.4; }
+  @keyframes slideUp { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+
+  /* ── Divider ── */
+  .divider { height: 1px; background: var(--border); margin: 16px 0; }
+
+  /* ── Scrollbar global ── */
+  * { scrollbar-width: thin; scrollbar-color: var(--surface3) transparent; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ── Header ── -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">☕</div>
+      <div>
+        <div class="brand-name">Kaapi <span>Copilot</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:1px;">AI-powered agentic commerce</div>
+      </div>
+    </div>
+    <div class="status-pill" onclick="checkHealth()" title="Click to refresh status">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Checking…</span>
+    </div>
+  </header>
+
+  <!-- ── Main grid ── -->
+  <div class="grid">
+
+    <!-- ── Journey A ── -->
+    <div class="card">
+      <div class="card-header">
+        <span>💬</span>
+        <h3>Chat with your AI barista</h3>
+        <span class="label label-a">JOURNEY A</span>
+      </div>
+      <div class="card-body">
+        <div class="chat-log" id="chatLog"></div>
+
+        <div class="chat-input-row">
+          <input class="chat-input" id="msgInput"
+            placeholder="e.g. I want good filter coffee, nothing fancy…"
+            onkeydown="if(event.key==='Enter')sendMessage()">
+          <button class="btn btn-primary" onclick="sendMessage()">Send ↑</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Cart -->
+        <div class="cart-section">
+          <div class="section-label">🛒 Cart</div>
+          <div class="cart-items" id="cartItems">
+            <div class="cart-empty">Your cart is empty</div>
+          </div>
+        </div>
+
+        <!-- Mandate -->
+        <div id="mandateSection" style="display:none">
+          <div class="divider"></div>
+          <div class="section-label">📋 Purchase Mandate</div>
+          <div class="mandate-box" id="mandateBox"></div>
+        </div>
+
+        <!-- Actions -->
+        <div class="action-row" style="margin-top:14px;">
+          <button class="btn btn-ghost" onclick="buildMandate()">Build Mandate</button>
+          <button class="btn btn-primary" id="payBtn" onclick="confirmAndPay()" disabled>Proceed to Pay ↗</button>
+        </div>
+
+        <!-- Order -->
+        <div id="orderSection" style="display:none">
+          <div class="divider"></div>
+          <div class="section-label">🧾 Order</div>
+          <div class="order-box" id="orderBox"></div>
+          <div class="action-row">
+            <button class="btn btn-success btn-sm" onclick="triggerWebhook('success')">✓ Simulate Payment Success</button>
+            <button class="btn btn-danger btn-sm" onclick="triggerWebhook('failure')">✗ Simulate Payment Failure</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Ops ── -->
+    <div class="card">
+      <div class="card-header">
+        <span>🔍</span>
+        <h3>Audit Trail &amp; Analytics</h3>
+        <span class="label label-ops">OPS</span>
+      </div>
+      <div class="card-body">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div class="section-label" style="margin:0;">Hash chain integrity</div>
+          <button class="btn btn-ghost btn-sm" onclick="refreshOps()">↻ Refresh</button>
+        </div>
+        <div id="chainStatus"></div>
+
+        <div class="section-label">Recent events</div>
+        <div class="audit-timeline" id="auditTimeline">
+          <div style="color:var(--muted);font-size:12px;padding:6px 0;">No events yet — click Refresh</div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="section-label">Revenue Analytics</div>
+        <div class="analytics-grid" id="analyticsGrid">
+          <div class="stat-card"><div class="stat-label">Orders paid</div><div class="stat-value" id="s-paid">—</div></div>
+          <div class="stat-card"><div class="stat-label">Upsell attach rate</div><div class="stat-value green" id="s-upsell">—</div></div>
+          <div class="stat-card"><div class="stat-label">Agent AOV</div><div class="stat-value amber" id="s-aov">—</div><div class="stat-sub" id="s-aov-sub"></div></div>
+          <div class="stat-card"><div class="stat-label">AOV Lift vs baseline</div><div class="stat-value green" id="s-lift">—</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Journey B ── -->
+  <div class="card journey-b">
+    <div class="card-header">
+      <span>🤖</span>
+      <h3>External AI Buyer Agent (MCP tools — no human typing)</h3>
+      <span class="label label-b">JOURNEY B</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="runJourneyB()" id="jbBtn">▶ Run Demo</button>
+    </div>
+    <div class="card-body">
+      <div class="steps" id="jbSteps">
+        <div style="color:var(--muted);font-size:13px;">
+          Click <b>Run Demo</b> to watch an AI agent autonomously browse, cart, and pay — zero human input.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast container ── -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// ── Config ──
+// Change this to your Railway URL after deployment, e.g.:
+// const API = "https://kaapi-copilot-production.up.railway.app/api";
+const API = "http://localhost:8000/api";
+
+let sessionId = null, currentMandateId = null, currentOrderId = null;
+
+// ── Toast system ──
+function toast(msg, type = "info") {
+  const icons = { info: "ℹ️", success: "✅", error: "❌" };
+  const el = document.createElement("div");
+  el.className = `toast ${type}`;
+  el.innerHTML = `<span class="toast-icon">${icons[type]}</span><span class="toast-msg">${msg}</span>`;
+  document.getElementById("toastContainer").appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+// ── HTTP helper ──
+async function api(path, options = {}) {
+  const r = await fetch(`${API}${path}`, options).catch(() => { throw new Error("Backend unreachable. Is the server running?"); });
+  const data = await r.json().catch(() => { throw new Error(`Invalid JSON from server (${r.status})`); });
+  if (!r.ok) throw new Error(data.detail || data.message || `Request failed (${r.status})`);
+  return data;
+}
+
+// ── Health check ──
+async function checkHealth() {
+  const dot = document.getElementById("statusDot");
+  const txt = document.getElementById("statusText");
+  try {
+    const h = await api("/health");
+    const mode = `${h.agent_mode_effective} agent · ${h.payment_mode_effective} payments`;
+    txt.textContent = mode;
+    dot.style.background = "var(--green)";
+  } catch {
+    txt.textContent = "Offline";
+    dot.style.background = "var(--red)";
+    dot.style.animation = "none";
+  }
+}
+
+// ── Chat ──
+function addMsg(who, text) {
+  const log = document.getElementById("chatLog");
+  const isTyping = who === "_typing";
+  const div = document.createElement("div");
+  div.className = `msg ${isTyping ? "agent" : who}`;
+  if (isTyping) {
+    div.id = "typingIndicator";
+    div.innerHTML = `<div class="msg-avatar">☕</div>
+      <div class="msg-bubble"><div class="typing-indicator">
+        <div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>
+      </div></div>`;
+  } else {
+    const avatar = who === "buyer" ? "👤" : "☕";
+    div.innerHTML = `<div class="msg-avatar">${avatar}</div>
+      <div class="msg-bubble">${text.replace(/\n/g,"<br>")}</div>`;
+  }
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  return div;
+}
+
+function removeTyping() {
+  document.getElementById("typingIndicator")?.remove();
+}
+
+function renderCart(skus) {
+  const container = document.getElementById("cartItems");
+  if (!skus.length) {
+    container.innerHTML = '<div class="cart-empty">Your cart is empty</div>';
+    return;
+  }
+  const icons = { powder:"🫘", beans:"☕", "brew-gear":"⚗️", subscription:"📦", accessory:"🔧", consumable:"🗂️" };
+  container.innerHTML = skus.map(sku => {
+    const name = sku.replace(/kr-/,"").replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase());
+    return `<div class="cart-item">
+      <span class="cart-item-icon">☕</span>
+      <span class="cart-item-name">${name}</span>
+      <span class="cart-item-price" id="price-${sku}">…</span>
+    </div>`;
+  }).join("");
+  // Fetch prices lazily
+  skus.forEach(async sku => {
+    try {
+      const p = await api(`/mcp/get_product?sku=${sku}`);
+      const el = document.getElementById(`price-${sku}`);
+      if (el) el.textContent = `₹${(p.price_paise/100).toFixed(0)}`;
+    } catch {}
+  });
+}
+
+async function sendMessage() {
+  const input = document.getElementById("msgInput");
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = "";
+  addMsg("buyer", msg);
+  addMsg("_typing");
+  try {
+    const data = await api("/chat", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ session_id: sessionId, buyer_ref: "web_buyer", message: msg }),
+    });
+    removeTyping();
+    sessionId = data.session_id;
+    addMsg("agent", data.reply);
+    renderCart(data.cart_skus);
+  } catch (e) {
+    removeTyping();
+    addMsg("agent", `⚠️ ${e.message}`);
+    toast(e.message, "error");
+  }
+}
+
+// ── Mandate ──
+function mandateStatusClass(s) {
+  return s === "blocked" ? "badge-blocked" : s === "confirmed" ? "badge-pass" : "badge-pending";
+}
+
+async function buildMandate() {
+  if (!sessionId) return toast("Start a chat first.", "info");
+  try {
+    const m = await api("/mandates/build", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ session_id: sessionId, buyer_ref: "web_buyer", message: "" }),
+    });
+    currentMandateId = m.mandate_id;
+    const blocked = m.status === "blocked";
+    document.getElementById("mandateSection").style.display = "";
+    document.getElementById("mandateBox").innerHTML = `
+      <div class="mandate-header">
+        <div>
+          <div class="mandate-id">${m.mandate_id}</div>
+          <span class="badge ${mandateStatusClass(m.status)}">${m.status.toUpperCase()}</span>
+          ${m.block_reason ? `<div style="margin-top:6px;color:var(--red);font-size:12px;">⚠ ${m.block_reason}</div>` : ""}
+        </div>
+        <div class="mandate-total">₹${(m.total_paise/100).toFixed(0)}</div>
+      </div>
+      <div class="policy-checks">
+        ${m.policy_checks.map(c=>`<span class="badge ${c.status==="pass"?"badge-pass":"badge-fail"}">
+          ${c.status==="pass"?"✓":"✗"} ${c.rule}</span>`).join("")}
+      </div>`;
+    document.getElementById("payBtn").disabled = blocked;
+    toast(blocked ? `Mandate blocked: ${m.block_reason}` : "Mandate built — review and proceed to pay.", blocked ? "error" : "success");
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function confirmAndPay() {
+  if (!currentMandateId) return;
+  document.getElementById("payBtn").disabled = true;
+  try {
+    const confirmed = await api("/mandates/confirm", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ mandate_id: currentMandateId, method: "buyer_tap" }),
+    });
+    if (confirmed.status !== "confirmed") throw new Error("Mandate was not confirmed.");
+    const order = await api("/checkout", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ mandate_id: currentMandateId }),
+    });
+    currentOrderId = order.order_id;
+    document.getElementById("orderSection").style.display = "";
+    document.getElementById("orderBox").innerHTML = `
+      <div style="margin-bottom:8px;">
+        <span class="badge badge-pending">ORDER CREATED</span>
+        <span style="font-family:monospace;font-size:11px;color:var(--muted);margin-left:8px;">${order.order_id}</span>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Payment link:</div>
+      <a class="order-link" href="${order.payment_link_url}" target="_blank">${order.payment_link_url}</a>`;
+    toast("Order created! Use the simulate buttons or pay via the real link.", "success");
+  } catch (e) {
+    document.getElementById("payBtn").disabled = false;
+    toast(e.message, "error");
+  }
+}
+
+async function triggerWebhook(outcome) {
+  if (!currentOrderId) return;
+  try {
+    const order = await api(`/demo/trigger-webhook?order_id=${currentOrderId}&outcome=${outcome}`, { method:"POST" });
+    const isPaid = order.status === "paid";
+    document.getElementById("orderBox").innerHTML = `
+      <div style="margin-bottom:8px;">
+        <span class="badge ${isPaid?"badge-pass":"badge-fail"}">${order.status.toUpperCase().replace("_"," ")}</span>
+        <span style="font-family:monospace;font-size:11px;color:var(--muted);margin-left:8px;">${order.order_id}</span>
+      </div>
+      ${order.failure_reason ? `<div style="color:var(--red);font-size:12px;">Reason: ${order.failure_reason}</div>` : ""}`;
+    toast(isPaid ? "Payment captured successfully! 🎉" : `Payment failed: ${order.failure_reason}`, isPaid ? "success" : "error");
+    refreshOps();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+// ── Ops ──
+function fmtTs(ts) {
+  return new Date(ts).toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", second:"2-digit" });
+}
+
+async function refreshOps() {
+  try {
+    const data = await api("/audit");
+    const chain = data.chain;
+    document.getElementById("chainStatus").innerHTML = `
+      <div class="chain-pill ${chain.valid?"chain-valid":"chain-invalid"}">
+        ${chain.valid ? "🔒 Chain VALID" : "⚠️ Chain TAMPERED"}
+        ${chain.entries != null ? `· ${chain.entries} entries` : ""}
+      </div>`;
+    const tl = document.getElementById("auditTimeline");
+    if (!data.events.length) { tl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:6px 0;">No events yet</div>'; }
+    else {
+      tl.innerHTML = data.events.slice(0, 30).map(e => `
+        <div class="audit-event">
+          <div class="audit-dot"></div>
+          <span class="audit-type">${e.event_type}</span>
+          <span class="audit-sess">${e.session_id.slice(0,16)}</span>
+          <span class="audit-ts">${fmtTs(e.ts)}</span>
+        </div>`).join("");
+    }
+
+    const an = await api("/analytics");
+    document.getElementById("s-paid").textContent = an.orders_paid;
+    document.getElementById("s-upsell").textContent = an.upsell_attach_rate_pct + "%";
+    document.getElementById("s-aov").textContent = an.agent_assisted_aov_paise ? "₹" + (an.agent_assisted_aov_paise/100).toFixed(0) : "₹0";
+    document.getElementById("s-aov-sub").textContent = "baseline ₹" + (an.baseline_aov_paise/100).toFixed(0);
+    const lift = an.aov_lift_pct;
+    const liftEl = document.getElementById("s-lift");
+    liftEl.textContent = (lift > 0 ? "+" : "") + lift + "%";
+    liftEl.style.color = lift > 0 ? "var(--green)" : lift < 0 ? "var(--red)" : "var(--muted)";
+  } catch (e) { toast(e.message, "error"); }
+}
+
+// ── Journey B ──
+const JB_STEPS = [
+  { title: "list_products()", detail: "Agent fetches the full catalog" },
+  { title: "add_to_cart(kr-filter-500)", detail: "Filter Coffee Powder 500g — ₹450" },
+  { title: "add_to_cart(kr-steel-filter)", detail: "South Indian Steel Filter Set — ₹650" },
+  { title: "create_checkout_mandate()", detail: "Guardrail checks: price, category, spend cap" },
+  { title: "confirm_and_pay()", detail: "Mandate confirmed programmatically, order created" },
+  { title: "Done — no human typed a single character", detail: "" },
+];
+
+function renderSteps(activeIdx) {
+  document.getElementById("jbSteps").innerHTML = JB_STEPS.map((s, i) => {
+    const cls = i < activeIdx ? "done" : i === activeIdx ? "active" : "";
+    const icon = i < activeIdx ? "✓" : i === activeIdx ? "◌" : String(i+1);
+    const isLast = i === JB_STEPS.length - 1;
+    return `<div class="step ${cls}">
+      <div class="step-line">
+        <div class="step-node">${icon}</div>
+        ${!isLast ? '<div class="step-connector"></div>' : ""}
+      </div>
+      <div class="step-content">
+        <div class="step-title">${s.title}</div>
+        ${s.detail ? `<div class="step-detail">${s.detail}</div>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function runJourneyB() {
+  const btn = document.getElementById("jbBtn");
+  btn.disabled = true; btn.textContent = "Running…";
+  const sess = "mcp_" + Date.now();
+  const delay = ms => new Promise(r => setTimeout(r, ms));
+
+  try {
+    renderSteps(0);
+    await delay(600);
+    await api("/mcp/list_products");
+
+    renderSteps(1);
+    await delay(600);
+    await api("/mcp/add_to_cart", { method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ session_id: sess, sku: "kr-filter-500" }) });
+
+    renderSteps(2);
+    await delay(600);
+    await api("/mcp/add_to_cart", { method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ session_id: sess, sku: "kr-steel-filter" }) });
+
+    renderSteps(3);
+    await delay(600);
+    const mandate = await api("/mcp/create_checkout_mandate", { method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ session_id: sess, buyer_ref: "external_ai_agent" }) });
+
+    renderSteps(4);
+    await delay(600);
+    const result = await api("/mcp/confirm_and_pay", { method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ mandate_id: mandate.mandate_id }) });
+
+    renderSteps(5);
+    // Update the last step detail with real order info
+    const steps = document.querySelectorAll(".step");
+    const last = steps[steps.length-1];
+    last.querySelector(".step-detail") || last.querySelector(".step-content").insertAdjacentHTML("beforeend",
+      `<div class="step-detail" style="color:var(--green)">Order ${result.order.order_id} · ₹${(result.order.total_paise/100).toFixed(0)}</div>`);
+    toast("Journey B complete! AI agent bought coffee autonomously. 🤖☕", "success");
+    refreshOps();
+  } catch (e) {
+    toast(e.message, "error");
+    renderSteps(-1);
+  } finally {
+    btn.disabled = false; btn.textContent = "▶ Run Again";
+  }
+}
+
+// ── Init ──
+checkHealth();
+refreshOps();
+// Welcome message
+window.addEventListener("DOMContentLoaded", () => {
+  setTimeout(() => addMsg("agent",
+    "Hey! I'm Kaapi Copilot ☕ — your AI shopping assistant for Kaapi Roasters.\n" +
+    "Tell me what you're after. Try: <i>\"I want good filter coffee, nothing fancy\"</i>"
+  ), 300);
+});
+</script>
+</body>
+</html>
