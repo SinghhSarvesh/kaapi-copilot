@@ -69,7 +69,7 @@ class GroqShoppingAgent(ShoppingAgent):
         add_to_cart_skus, upsell_sku, upsell_reason, ready = [], None, "", False
         upsell_count = 0
 
-        for _ in range(5):  # bounded tool loop
+        for _ in range(8):  # bounded tool loop
             resp = self.client.chat.completions.create(
                 model=self.model, messages=messages, tools=TOOLS, max_tokens=1024,
             )
@@ -105,7 +105,9 @@ class GroqShoppingAgent(ShoppingAgent):
                     tool_input = {}
                 result = self._run_tool(tool_name, tool_input, session_state)
                 if tool_name == "add_to_cart" and result.get("product"):
-                    add_to_cart_skus.append(tool_input["sku"])
+                    sku = tool_input["sku"]
+                    if sku not in add_to_cart_skus:
+                        add_to_cart_skus.append(sku)
                 if tool_name == "propose_upsell" and result.get("upsell") and upsell_count < settings.max_upsells_per_turn:
                     upsell_sku = result["upsell"]["sku"]
                     upsell_reason = f"Catalog-defined pair for this purchase: {result['upsell']['name']}."
@@ -119,4 +121,15 @@ class GroqShoppingAgent(ShoppingAgent):
                     "content": json.dumps(result),
                 })
 
-        return AgentResponse("Here is your cart summary. Ready to proceed whenever you are!", add_to_cart_skus, upsell_sku, upsell_reason, ready)
+        # One final completion to explain the recommendations
+        try:
+            final_resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages + [{"role": "user", "content": "Please give a brief, friendly summary of what you recommended and added to the cart."}],
+                max_tokens=512,
+            )
+            final_text = final_resp.choices[0].message.content or "Here is your cart summary. Ready to proceed whenever you are!"
+        except Exception:
+            final_text = "Here is your cart summary. Ready to proceed whenever you are!"
+
+        return AgentResponse(final_text, add_to_cart_skus, upsell_sku, upsell_reason, ready)

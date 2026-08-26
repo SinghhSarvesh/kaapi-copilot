@@ -30,9 +30,24 @@ class CatalogService:
         return self.get_product(p.upsell_pairs[0])
 
     def search(self, query: str) -> list:
-        q = query.lower()
-        return [p.to_dict() for p in SEED_PRODUCTS
-                if q in p.name.lower() or q in p.category.lower() or q in p.description.lower()]
+        q = query.lower().strip()
+        if not q:
+            return [p.to_dict() for p in SEED_PRODUCTS]
+        # First try exact substring match
+        exact = [p.to_dict() for p in SEED_PRODUCTS
+                 if q in p.name.lower() or q in p.category.lower() or q in p.description.lower()]
+        if exact:
+            return exact
+        # Fall back to word-level token match (e.g. 'starter kit' -> matches 'coffee', 'filter', etc.)
+        terms = [t for t in q.split() if len(t) > 2]
+        if not terms:
+            return [p.to_dict() for p in SEED_PRODUCTS]
+        matched = []
+        for p in SEED_PRODUCTS:
+            text = f"{p.name} {p.category} {p.description}".lower()
+            if any(t in text for t in terms):
+                matched.append(p.to_dict())
+        return matched if matched else [p.to_dict() for p in SEED_PRODUCTS[:4]]
 
     def merchant_info(self) -> dict:
         return MERCHANT
