@@ -38,7 +38,8 @@ class MandateEngine:
         return self._session_spend_paise.get(session_id, 0)
 
     def build_mandate(self, session_id: str, buyer_ref: str, cart_skus: list,
-                       rationale: str, agent_stated_prices: Optional[dict] = None) -> PurchaseMandate:
+                       rationale: str, agent_stated_prices: Optional[dict] = None,
+                       session_budget_paise: Optional[int] = None) -> PurchaseMandate:
         agent_stated_prices = agent_stated_prices or {}
         items, price_mismatch = [], None
 
@@ -49,7 +50,7 @@ class MandateEngine:
                 policy_checks=[PolicyCheck("cart_not_empty", "fail", detail="Cart is empty; add items before building a mandate.")],
                 status="blocked", block_reason="Cart is empty; add items before building a mandate.",
             )
-            audit_trail.log("mandate_built", session_id, mandate.to_dict())
+            audit_trail.log("MANDATE_BLOCKED", session_id, mandate.to_dict())
             return mandate
 
         for sku in cart_skus:
@@ -86,6 +87,14 @@ class MandateEngine:
         checks.append(PolicyCheck("session_spend_cap", sess_status, settings.session_spend_cap_paise,
                                    detail=f"projected_session_spend_paise={projected_session_spend}"))
 
+        # P1: Buyer-set budget check (most restrictive — checked last)
+        if session_budget_paise is not None:
+            budget_status = "pass" if total_paise <= session_budget_paise else "fail"
+            checks.append(PolicyCheck(
+                "buyer_budget_check", budget_status, session_budget_paise,
+                detail=f"total_paise={total_paise}, buyer_budget_paise={session_budget_paise}",
+            ))
+
         blocked = any(c.status == "fail" for c in checks)
         status = "blocked" if blocked else "pending"
         block_reason = "; ".join(c.detail for c in checks if c.status == "fail") if blocked else None
@@ -97,8 +106,10 @@ class MandateEngine:
         )
 
         # Always written to the audit trail before any Razorpay call is even considered.
-        audit_trail.log("mandate_built", session_id, mandate.to_dict())
+        event_name = "MANDATE_BLOCKED" if blocked else "MANDATE_CREATED"
+        audit_trail.log(event_name, session_id, mandate.to_dict())
         return mandate
+
 
     def confirm_mandate(self, mandate: PurchaseMandate, method: str) -> PurchaseMandate:
         """The only path that may flip a mandate to 'confirmed'. method: 'buyer_tap' | 'mcp_confirm_and_pay'."""

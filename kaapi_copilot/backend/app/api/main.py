@@ -31,6 +31,7 @@ app.add_middleware(
 )
 
 # In-memory cart store for the MCP (Journey B) tool surface, keyed by mcp session id
+# Uses the same session_manager so budget enforcement is shared.
 _mcp_carts: dict = {}
 
 
@@ -54,6 +55,11 @@ class McpCartRequest(BaseModel):
     sku: str
 
 
+class McpRemoveRequest(BaseModel):
+    session_id: str
+    sku: str
+
+
 class McpMandateRequest(BaseModel):
     session_id: str
     buyer_ref: str
@@ -61,6 +67,16 @@ class McpMandateRequest(BaseModel):
 
 class McpConfirmRequest(BaseModel):
     mandate_id: str
+
+
+class SetBudgetRequest(BaseModel):
+    session_id: str
+    amount_inr: float
+
+
+class BuildMandateRequest(BaseModel):
+    session_id: str
+    buyer_ref: str = "buyer_web"
 
 
 @app.get("/")
@@ -85,22 +101,76 @@ def chat(req: ChatRequest):
     audit_trail.log("chat_message_received", session_id, {"buyer_ref": req.buyer_ref, "message": req.message})
 
     agent = get_shopping_agent()
-    response = agent.handle_turn(state, req.message)
+    # Pass session_id so the agent's tool handlers can call session_manager for budget enforcement
+    response = agent.handle_turn(state, req.message, session_id=session_id)
     session_manager.apply_agent_response(session_id, response)
     audit_trail.log("agent_turn", session_id, {
-        "reply": response.reply, "added": response.add_to_cart_skus,
-        "upsell_sku": response.upsell_sku, "ready_to_checkout": response.ready_to_checkout,
+        "reply": response.reply,
+        "added": response.add_to_cart_skus,
+        "removed": response.remove_from_cart_skus,
+        "upsell_sku": response.upsell_sku,
+        "ready_to_checkout": response.ready_to_checkout,
+        "decision_log": response.decision_log,
     })
 
+    # Re-read authoritative state after all mutations
+    state = session_manager.get_state(session_id)
+    cart_total = session_manager.get_cart_total_paise(session_id)
+    budget = state.get("budget_limit_paise")
+
     return {
-        "session_id": session_id, "reply": response.reply,
-        "cart_skus": state["cart_skus"], "upsell_sku": response.upsell_sku,
-        "upsell_reason": response.upsell_reason, "ready_to_checkout": response.ready_to_checkout,
+        "session_id": session_id,
+        "reply": response.reply,
+        "cart_skus": state["cart_skus"],
+        "cart_total_paise": cart_total,
+        "budget_limit_paise": budget,
+        "remaining_budget_paise": (budget - cart_total) if budget is not None else None,
+        "upsell_sku": response.upsell_sku,
+        "upsell_reason": response.upsell_reason,
+        "ready_to_checkout": response.ready_to_checkout,
+        "conversation_state": state.get("conversation_state"),
+        "decision_log": response.decision_log,
     }
 
 
+@app.post("/api/session/set_budget")
+def set_budget(req: SetBudgetRequest):
+    """Explicitly set a spending budget for a session (can also be done via chat)."""
+    try:
+        state = session_manager.get_state(req.session_id)
+    except KeyError:
+        raise HTTPException(404, f"Session '{req.session_id}' not found.")
+    amount_paise = int(req.amount_inr * 100)
+    session_manager.set_budget(req.session_id, amount_paise)
+    return {"budget_set": True, "amount_paise": amount_paise, "amount_inr": req.amount_inr}
+
+
+@app.post("/api/cart/remove")
+def remove_from_cart(session_id: str, sku: str):
+    """Explicitly remove an item from the cart (can also be done via chat)."""
+    try:
+        session_manager.get_state(session_id)
+    except KeyError:
+        raise HTTPException(404, f"Session '{session_id}' not found.")
+    result = session_manager.remove_from_cart(session_id, sku)
+    if not result.get("removed"):
+        raise HTTPException(400, result.get("reason", "Item not in cart"))
+    total = session_manager.get_cart_total_paise(session_id)
+    return {**result, "cart_total_paise": total}
+
+
+@app.post("/api/cart/clear")
+def clear_cart(session_id: str):
+    """Clear all items from the cart."""
+    try:
+        session_manager.get_state(session_id)
+    except KeyError:
+        raise HTTPException(404, f"Session '{session_id}' not found.")
+    return session_manager.clear_cart(session_id)
+
+
 @app.post("/api/mandates/build")
-def build_mandate(req: ChatRequest):
+def build_mandate(req: BuildMandateRequest):
     if not req.session_id:
         raise HTTPException(400, "session_id required")
     try:
@@ -110,6 +180,7 @@ def build_mandate(req: ChatRequest):
     mandate = mandate_engine.build_mandate(
         req.session_id, req.buyer_ref, state["cart_skus"],
         rationale=f"Buyer-confirmed cart built via Journey A chat for {req.buyer_ref}.",
+        session_budget_paise=state.get("budget_limit_paise"),
     )
     order_service.register_mandate(mandate)
     return mandate.to_dict()
@@ -205,36 +276,107 @@ def mcp_get_product(sku: str):
 
 @app.post("/api/mcp/add_to_cart")
 def mcp_add_to_cart(req: McpCartRequest):
-    if catalog_service.get_product(req.sku) is None:
-        raise HTTPException(404, "sku not found")
-    cart = _mcp_carts.setdefault(req.session_id, [])
-    if req.sku not in cart:
-        cart.append(req.sku)
-    audit_trail.log("mcp_add_to_cart", req.session_id, {"sku": req.sku})
-    return {"cart_skus": cart}
+    """
+    MCP add-to-cart with full backend budget enforcement.
+    External AI agents cannot bypass the policy engine here.
+    """
+    # If session doesn't exist in session_manager, create a new one
+    if req.session_id not in session_manager._sessions:
+        session_manager._sessions[req.session_id] = {
+            "buyer_ref": "external_ai_agent",
+            "cart_skus": [],
+            "upsell_offered": [],
+            "pending_upsell": None,
+            "history": [],
+            "upsells_accepted": 0,
+            "upsells_offered_count": 0,
+            "budget_limit_paise": None,
+            "conversation_state": "DISCOVERY",
+        }
+    # Never overwrite an existing session — it may have a budget set
+
+    result = session_manager.add_to_cart_validated(req.session_id, req.sku)
+    if not result.get("added"):
+        raise HTTPException(400, result.get("message", result.get("reason", "Cannot add item")))
+
+    state = session_manager.get_state(req.session_id)
+    _mcp_carts[req.session_id] = state["cart_skus"]
+    return {
+        "cart_skus": state["cart_skus"],
+        "new_cart_total_paise": result.get("new_cart_total_paise"),
+        "budget_limit_paise": result.get("budget_limit_paise"),
+    }
+
+
+@app.post("/api/mcp/remove_from_cart")
+def mcp_remove_from_cart(req: McpRemoveRequest):
+    """
+    MCP remove-from-cart. Journey B agents can now remove items.
+    """
+    try:
+        session_manager.get_state(req.session_id)
+    except KeyError:
+        raise HTTPException(404, f"Session '{req.session_id}' not found.")
+    result = session_manager.remove_from_cart(req.session_id, req.sku)
+    if not result.get("removed"):
+        raise HTTPException(400, result.get("message", "Item not in cart"))
+    state = session_manager.get_state(req.session_id)
+    _mcp_carts[req.session_id] = state["cart_skus"]
+    total = session_manager.get_cart_total_paise(req.session_id)
+    return {
+        "removed": True,
+        "sku": req.sku,
+        "updated_cart": state["cart_skus"],
+        "updated_total_paise": total,
+    }
 
 
 @app.get("/api/mcp/get_cart")
 def mcp_get_cart(session_id: str):
-    cart = _mcp_carts.get(session_id, [])
-    items = [catalog_service.get_product(s) for s in cart]
-    # Filter out any None items (SKU removed from catalog after being added to cart)
+    try:
+        state = session_manager.get_state(session_id)
+        cart_skus = state["cart_skus"]
+    except KeyError:
+        cart_skus = _mcp_carts.get(session_id, [])
+    items = [catalog_service.get_product(s) for s in cart_skus]
     valid_items = [i for i in items if i is not None]
     total = sum(i["price_paise"] for i in valid_items)
-    return {"cart_skus": cart, "items": valid_items, "total_paise": total}
+    budget = None
+    try:
+        budget = session_manager.get_state(session_id).get("budget_limit_paise")
+    except KeyError:
+        pass
+    return {
+        "cart_skus": cart_skus,
+        "items": valid_items,
+        "total_paise": total,
+        "budget_limit_paise": budget,
+        "remaining_budget_paise": (budget - total) if budget is not None else None,
+    }
 
 
 @app.post("/api/mcp/create_checkout_mandate")
 def mcp_create_checkout_mandate(req: McpMandateRequest):
-    cart = _mcp_carts.get(req.session_id, [])
+    try:
+        state = session_manager.get_state(req.session_id)
+        cart = state["cart_skus"]
+        budget = state.get("budget_limit_paise")
+    except KeyError:
+        cart = _mcp_carts.get(req.session_id, [])
+        budget = None
     if not cart:
         raise HTTPException(400, "cart is empty")
     mandate = mandate_engine.build_mandate(
         req.session_id, req.buyer_ref, cart,
         rationale="External AI buyer agent (Journey B) requested checkout via MCP tools.",
+        session_budget_paise=budget,
     )
     order_service.register_mandate(mandate)
-    # Clear the cart after the mandate is captured so the next add_to_cart starts fresh.
+    # Clear the cart after mandate is captured
+    try:
+        session_manager.clear_cart(req.session_id)
+    except KeyError:
+        pass
     _mcp_carts[req.session_id] = []
     return mandate.to_dict()
 

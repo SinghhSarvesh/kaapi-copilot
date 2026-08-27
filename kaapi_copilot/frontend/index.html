@@ -110,7 +110,7 @@
 
   /* ── Chat ── */
   .chat-log {
-    height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
+    height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
     padding: 4px 0; margin-bottom: 14px;
     scrollbar-width: thin; scrollbar-color: var(--surface3) transparent;
   }
@@ -180,13 +180,37 @@
   .btn-success { background: rgba(62,207,110,.15); color: var(--green); border: 1px solid rgba(62,207,110,.25); }
   .btn-success:hover { background: rgba(62,207,110,.25); }
   .btn:disabled { opacity: .38; cursor: not-allowed; filter: none !important; box-shadow: none !important; }
-  .btn-sm { padding: 7px 12px; font-size: 12px; }
-  .btn-icon { padding: 9px; }
+  .btn-sm { padding: 5px 10px; font-size: 11px; }
+  .btn-icon { padding: 4px 8px; border-radius: 4px; font-size: 11px; }
+
+  /* ── Guardrail / Spend Cap Banner ── */
+  .guardrail-panel {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin-top: 14px;
+    font-size: 12px;
+  }
+  .guardrail-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 6px;
+  }
+  @media(max-width: 600px) { .guardrail-grid { grid-template-columns: 1fr 1fr; } }
+  .guardrail-item { display: flex; flex-direction: column; }
+  .guardrail-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .guardrail-val { font-size: 13px; font-weight: 600; color: var(--cream); margin-top: 2px; }
+  .guardrail-val.ok { color: var(--green); }
+  .guardrail-val.warn { color: var(--amber); }
+  .guardrail-val.block { color: var(--red); }
 
   /* ── Cart ── */
   .cart-section { margin-top: 14px; }
   .section-label { font-size: 11px; font-weight: 600; text-transform: uppercase;
     letter-spacing: .8px; color: var(--muted); margin-bottom: 8px; }
+  .cart-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
   .cart-items { display: flex; flex-direction: column; gap: 6px; }
   .cart-item {
     display: flex; align-items: center; gap: 10px;
@@ -197,7 +221,37 @@
   .cart-item-icon { font-size: 18px; }
   .cart-item-name { flex: 1; font-weight: 500; color: var(--cream); }
   .cart-item-price { color: var(--amber); font-weight: 600; font-size: 13px; }
+  .cart-item-remove {
+    background: rgba(224,92,92,.1); color: var(--red); border: 1px solid rgba(224,92,92,.2);
+    border-radius: 4px; padding: 2px 6px; font-size: 11px; cursor: pointer; transition: var(--trans);
+  }
+  .cart-item-remove:hover { background: rgba(224,92,92,.25); }
   .cart-empty { color: var(--muted); font-size: 13px; font-style: italic; padding: 10px 0; }
+
+  /* ── AI Decision & Explainability Log ── */
+  .decision-feed {
+    max-height: 120px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+    scrollbar-width: thin;
+  }
+  .decision-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: monospace;
+  }
+  .decision-item.ALLOWED { border-left: 2px solid var(--green); }
+  .decision-item.BLOCKED { border-left: 2px solid var(--red); color: var(--red); }
+  .decision-item.DONE    { border-left: 2px solid var(--blue); }
 
   /* ── Mandate ── */
   .mandate-box {
@@ -320,7 +374,7 @@
       <div class="brand-icon">☕</div>
       <div>
         <div class="brand-name">Kaapi <span>Copilot</span></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:1px;">AI-powered agentic commerce</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:1px;">Deterministic Guardrails · Autonomous AI Commerce</div>
       </div>
     </div>
     <div class="status-pill" onclick="checkHealth()" title="Click to refresh status">
@@ -336,7 +390,7 @@
     <div class="card">
       <div class="card-header">
         <span>💬</span>
-        <h3>Chat with your AI barista</h3>
+        <h3>Conversational Buyer Agent</h3>
         <span class="label label-a">JOURNEY A</span>
       </div>
       <div class="card-body">
@@ -344,25 +398,60 @@
 
         <div class="chat-input-row">
           <input class="chat-input" id="msgInput"
-            placeholder="e.g. I want good filter coffee, nothing fancy…"
+            placeholder="e.g. Don't spend more than ₹500, recommend good filter coffee…"
             onkeydown="if(event.key==='Enter')sendMessage()">
           <button class="btn btn-primary" onclick="sendMessage()">Send ↑</button>
+        </div>
+
+        <!-- Guardrail Status Panel -->
+        <div class="guardrail-panel">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div class="section-label" style="margin:0;">🛡️ Active Spend Policy Guardrails</div>
+            <span class="badge badge-pass" id="guardrailStatusBadge">Active</span>
+          </div>
+          <div class="guardrail-grid">
+            <div class="guardrail-item">
+              <span class="guardrail-label">Authorized Limit</span>
+              <span class="guardrail-val" id="g-budget">No Limit</span>
+            </div>
+            <div class="guardrail-item">
+              <span class="guardrail-label">Current Cart</span>
+              <span class="guardrail-val amber" id="g-cart">₹0</span>
+            </div>
+            <div class="guardrail-item">
+              <span class="guardrail-label">Remaining</span>
+              <span class="guardrail-val ok" id="g-remaining">—</span>
+            </div>
+            <div class="guardrail-item">
+              <span class="guardrail-label">State Machine</span>
+              <span class="guardrail-val" id="g-state" style="font-size:11px;font-family:monospace;">DISCOVERY</span>
+            </div>
+          </div>
         </div>
 
         <div class="divider"></div>
 
         <!-- Cart -->
         <div class="cart-section">
-          <div class="section-label">🛒 Cart</div>
+          <div class="cart-header-row">
+            <div class="section-label" style="margin:0;">🛒 Cart Items</div>
+            <button class="btn btn-ghost btn-sm" onclick="clearCart()" id="clearCartBtn" style="display:none;">Clear Cart</button>
+          </div>
           <div class="cart-items" id="cartItems">
             <div class="cart-empty">Your cart is empty</div>
           </div>
         </div>
 
+        <!-- Explainability / Decision Panel -->
+        <div class="cart-section" id="decisionSection" style="display:none;">
+          <div class="section-label">🧠 AI Policy Decisions (Explainability)</div>
+          <div class="decision-feed" id="decisionFeed"></div>
+        </div>
+
         <!-- Mandate -->
         <div id="mandateSection" style="display:none">
           <div class="divider"></div>
-          <div class="section-label">📋 Purchase Mandate</div>
+          <div class="section-label">📋 Cryptographic Purchase Mandate</div>
           <div class="mandate-box" id="mandateBox"></div>
         </div>
 
@@ -375,7 +464,7 @@
         <!-- Order -->
         <div id="orderSection" style="display:none">
           <div class="divider"></div>
-          <div class="section-label">🧾 Order</div>
+          <div class="section-label">🧾 Order &amp; Razorpay Simulation</div>
           <div class="order-box" id="orderBox"></div>
           <div class="action-row">
             <button class="btn btn-success btn-sm" onclick="triggerWebhook('success')">✓ Simulate Payment Success</button>
@@ -399,7 +488,7 @@
         </div>
         <div id="chainStatus"></div>
 
-        <div class="section-label">Recent events</div>
+        <div class="section-label">Recent Audit Events</div>
         <div class="audit-timeline" id="auditTimeline">
           <div style="color:var(--muted);font-size:12px;padding:6px 0;">No events yet — click Refresh</div>
         </div>
@@ -427,7 +516,7 @@
     <div class="card-body">
       <div class="steps" id="jbSteps">
         <div style="color:var(--muted);font-size:13px;">
-          Click <b>Run Demo</b> to watch an AI agent autonomously browse, cart, and pay — zero human input.
+          Click <b>Run Demo</b> to watch an AI agent autonomously browse, cart, and pay via MCP endpoints — fully subject to backend budget and price guardrails.
         </div>
       </div>
     </div>
@@ -503,19 +592,55 @@ function removeTyping() {
   document.getElementById("typingIndicator")?.remove();
 }
 
+function updateGuardrailPanel(data) {
+  const budget = data.budget_limit_paise;
+  const total = data.cart_total_paise || 0;
+  const rem = data.remaining_budget_paise;
+  const convState = data.conversation_state || "DISCOVERY";
+
+  document.getElementById("g-budget").textContent = budget != null ? `₹${(budget/100).toFixed(0)}` : "No limit";
+  document.getElementById("g-cart").textContent = `₹${(total/100).toFixed(0)}`;
+  
+  const remEl = document.getElementById("g-remaining");
+  if (budget != null) {
+    remEl.textContent = `₹${(rem/100).toFixed(0)}`;
+    remEl.className = rem < 0 ? "guardrail-val block" : rem === 0 ? "guardrail-val warn" : "guardrail-val ok";
+  } else {
+    remEl.textContent = "—";
+    remEl.className = "guardrail-val ok";
+  }
+
+  document.getElementById("g-state").textContent = convState;
+
+  // Decision log explainability
+  if (data.decision_log && data.decision_log.length) {
+    document.getElementById("decisionSection").style.display = "";
+    const feed = document.getElementById("decisionFeed");
+    data.decision_log.forEach(d => {
+      const row = document.createElement("div");
+      row.className = `decision-item ${d.decision || "DONE"}`;
+      row.textContent = `${d.action} → ${d.decision || "OK"}${d.reason ? ` (${d.reason})` : ""}`;
+      feed.prepend(row);
+    });
+  }
+}
+
 function renderCart(skus) {
   const container = document.getElementById("cartItems");
-  if (!skus.length) {
+  const clearBtn = document.getElementById("clearCartBtn");
+  if (!skus || !skus.length) {
     container.innerHTML = '<div class="cart-empty">Your cart is empty</div>';
+    if (clearBtn) clearBtn.style.display = "none";
     return;
   }
-  const icons = { powder:"🫘", beans:"☕", "brew-gear":"⚗️", subscription:"📦", accessory:"🔧", consumable:"🗂️" };
+  if (clearBtn) clearBtn.style.display = "";
   container.innerHTML = skus.map(sku => {
     const name = sku.replace(/kr-/,"").replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase());
     return `<div class="cart-item">
       <span class="cart-item-icon">☕</span>
       <span class="cart-item-name">${name}</span>
       <span class="cart-item-price" id="price-${sku}">…</span>
+      <button class="cart-item-remove" onclick="removeItem('${sku}')" title="Remove item">✕</button>
     </div>`;
   }).join("");
   // Fetch prices lazily
@@ -526,6 +651,32 @@ function renderCart(skus) {
       if (el) el.textContent = `₹${(p.price_paise/100).toFixed(0)}`;
     } catch {}
   });
+}
+
+async function removeItem(sku) {
+  if (!sessionId) return;
+  try {
+    const r = await api(`/cart/remove?session_id=${sessionId}&sku=${sku}`, { method: "POST" });
+    renderCart(r.cart_skus);
+    document.getElementById("g-cart").textContent = `₹${(r.cart_total_paise/100).toFixed(0)}`;
+    toast(`Removed ${r.product_name || sku} from cart`, "info");
+    refreshOps();
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+
+async function clearCart() {
+  if (!sessionId) return;
+  try {
+    await api(`/cart/clear?session_id=${sessionId}`, { method: "POST" });
+    renderCart([]);
+    document.getElementById("g-cart").textContent = "₹0";
+    toast("Cart cleared", "info");
+    refreshOps();
+  } catch (e) {
+    toast(e.message, "error");
+  }
 }
 
 async function sendMessage() {
@@ -544,6 +695,8 @@ async function sendMessage() {
     sessionId = data.session_id;
     addMsg("agent", data.reply);
     renderCart(data.cart_skus);
+    updateGuardrailPanel(data);
+    refreshOps();
   } catch (e) {
     removeTyping();
     addMsg("agent", `⚠️ ${e.message}`);
@@ -561,7 +714,7 @@ async function buildMandate() {
   try {
     const m = await api("/mandates/build", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ session_id: sessionId, buyer_ref: "web_buyer", message: "" }),
+      body: JSON.stringify({ session_id: sessionId, buyer_ref: "web_buyer" }),
     });
     currentMandateId = m.mandate_id;
     const blocked = m.status === "blocked";
@@ -581,6 +734,7 @@ async function buildMandate() {
       </div>`;
     document.getElementById("payBtn").disabled = blocked;
     toast(blocked ? `Mandate blocked: ${m.block_reason}` : "Mandate built — review and proceed to pay.", blocked ? "error" : "success");
+    refreshOps();
   } catch (e) { toast(e.message, "error"); }
 }
 
@@ -607,6 +761,7 @@ async function confirmAndPay() {
       <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Payment link:</div>
       <a class="order-link" href="${order.payment_link_url}" target="_blank">${order.payment_link_url}</a>`;
     toast("Order created! Use the simulate buttons or pay via the real link.", "success");
+    refreshOps();
   } catch (e) {
     document.getElementById("payBtn").disabled = false;
     toast(e.message, "error");
@@ -630,6 +785,7 @@ async function triggerWebhook(outcome) {
       renderCart([]);
       currentMandateId = null;
       document.getElementById("payBtn").disabled = true;
+      document.getElementById("g-cart").textContent = "₹0";
       addMsg("agent", "🎉 Payment successful! Your fresh roast is on its way. Let me know if you want to explore more blends!");
     }
     refreshOps();
@@ -679,7 +835,7 @@ const JB_STEPS = [
   { title: "list_products()", detail: "Agent fetches the full catalog" },
   { title: "add_to_cart(kr-filter-500)", detail: "Filter Coffee Powder 500g — ₹450" },
   { title: "add_to_cart(kr-steel-filter)", detail: "South Indian Steel Filter Set — ₹650" },
-  { title: "create_checkout_mandate()", detail: "Guardrail checks: price, category, spend cap" },
+  { title: "create_checkout_mandate()", detail: "Guardrail checks: price, category, spend cap, buyer budget" },
   { title: "confirm_and_pay()", detail: "Mandate confirmed programmatically, order created" },
   { title: "Done — no human typed a single character", detail: "" },
 ];
@@ -756,7 +912,7 @@ refreshOps();
 window.addEventListener("DOMContentLoaded", () => {
   setTimeout(() => addMsg("agent",
     "Hey! I'm Kaapi Copilot ☕ — your AI shopping assistant for Kaapi Roasters.\n" +
-    "Tell me what you're after. Try: <i>\"I want good filter coffee, nothing fancy\"</i>"
+    "Tell me what you're after. Try: <i>\"Don't spend more than ₹500, I want good filter coffee\"</i>"
   ), 300);
 });
 </script>

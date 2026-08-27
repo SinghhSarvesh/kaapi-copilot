@@ -63,9 +63,12 @@ def test_mcp_flow_rejects_empty_and_unknown_skus():
     assert client.post("/api/mcp/create_checkout_mandate", json={
         "session_id": "empty", "buyer_ref": "buyer",
     }).status_code == 400
-    assert client.post("/api/mcp/add_to_cart", json={
+    # Unknown SKU returns 400 (policy/validation rejection, not a resource not-found)
+    r = client.post("/api/mcp/add_to_cart", json={
         "session_id": "bad", "sku": "unknown",
-    }).status_code == 404
+    })
+    assert r.status_code == 400
+    assert "INVALID_SKU" in r.text or "not in the catalog" in r.text
 
 
 def test_groq_view_cart_returns_actual_session_state():
