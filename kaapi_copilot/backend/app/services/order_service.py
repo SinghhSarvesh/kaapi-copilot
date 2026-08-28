@@ -29,7 +29,28 @@ class OrderService:
         return self._mandates.get(mandate_id)
 
     def checkout(self, mandate: PurchaseMandate) -> Order:
-        """Only a CONFIRMED mandate may reach here."""
+        """Only a CONFIRMED mandate may reach here. Idempotent: a mandate that
+        already produced an order (double-click, retry, duplicate request)
+        returns the existing order instead of creating a second Razorpay order."""
+        if mandate.order_id and mandate.order_id in self._orders:
+            existing_order = self._orders[mandate.order_id]
+            if existing_order.status == "payment_failed":
+                audit_trail.log("checkout_retry_after_failure_rejected", mandate.session_id,
+                                 {"mandate_id": mandate.mandate_id, "order_id": mandate.order_id,
+                                  "reason": "previous payment attempt failed; a new mandate is required to retry"})
+                raise GuardrailError(
+                    f"Mandate {mandate.mandate_id} already failed payment via order {mandate.order_id}; "
+                    "build a new mandate to retry (safe -- prevents resurrecting a declined charge)"
+                )
+            audit_trail.log("checkout_idempotent_replay", mandate.session_id,
+                             {"mandate_id": mandate.mandate_id, "order_id": mandate.order_id,
+                              "reason": "checkout already performed for this mandate; returning existing order"})
+            return existing_order
+
+        if mandate.status == "paid":
+            raise GuardrailError(f"Mandate {mandate.mandate_id} is already paid")
+        if mandate.status == "payment_failed":
+            raise GuardrailError(f"Mandate {mandate.mandate_id} failed; build a new mandate to retry")
         if mandate.status != "confirmed":
             audit_trail.log("checkout_rejected", mandate.session_id,
                              {"mandate_id": mandate.mandate_id, "reason": f"mandate status is '{mandate.status}', not 'confirmed'"})
