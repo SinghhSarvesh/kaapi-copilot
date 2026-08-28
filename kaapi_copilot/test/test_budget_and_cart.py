@@ -392,3 +392,86 @@ def test_payment_failure_order_stays_unpaid():
     assert fail_r.status_code == 200, fail_r.text
     assert fail_r.json()["status"] == "payment_failed"
     assert fail_r.json()["status"] != "paid"
+
+
+# ── Budget clearance tests ───────────────────────────────────────────────────
+
+def test_clear_budget_endpoint_removes_limit():
+    """POST /api/session/clear_budget must remove the limit and log BUDGET_CLEARED."""
+    c = get_client()
+    sess = new_session(c)
+    set_budget_api(c, sess, 500)  # ₹500 limit
+
+    # Verify limit is active
+    cart = mcp_cart(c, sess)
+    assert cart["budget_limit_paise"] == 50000
+
+    # Clear budget
+    r = c.post(f"/api/session/clear_budget?session_id={sess}")
+    assert r.status_code == 200, r.text
+    assert r.json()["budget_cleared"] is True
+
+    # Limit must now be None
+    cart = mcp_cart(c, sess)
+    assert cart["budget_limit_paise"] is None
+
+
+def test_clear_budget_via_set_budget_zero():
+    """POST /api/session/set_budget with amount_inr=0 should clear the budget."""
+    c = get_client()
+    sess = new_session(c)
+    set_budget_api(c, sess, 500)
+
+    r = c.post("/api/session/set_budget", json={"session_id": sess, "amount_inr": 0})
+    assert r.status_code == 200, r.text
+    assert r.json()["budget_cleared"] is True
+
+    cart = mcp_cart(c, sess)
+    assert cart["budget_limit_paise"] is None
+
+
+def test_clear_budget_via_chat_mock():
+    """User saying 'remove my budget limit' in chat removes limit."""
+    c = get_client()
+    sess = new_session(c)
+    set_budget_api(c, sess, 500)
+
+    r = c.post("/api/chat", json={
+        "session_id": sess,
+        "message": "Please remove my budget limit",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["budget_limit_paise"] is None
+    assert "removed" in r.json()["reply"].lower()
+
+
+def test_add_item_after_budget_cleared():
+    """Setting budget blocks expensive item; clearing budget allows it."""
+    c = get_client()
+    sess = new_session(c)
+    set_budget_api(c, sess, 500)  # ₹500 budget
+
+    # Adding ₹700 subscription fails
+    r_block = mcp_add(c, sess, "kr-subscription")
+    assert r_block.status_code == 400
+
+    # Clear budget
+    c.post(f"/api/session/clear_budget?session_id={sess}")
+
+    # Adding ₹700 subscription now succeeds!
+    r_allow = mcp_add(c, sess, "kr-subscription")
+    assert r_allow.status_code == 200
+    assert "kr-subscription" in r_allow.json()["cart_skus"]
+
+
+def test_budget_cleared_audit_trail():
+    """BUDGET_CLEARED audit event must be logged in hash chain."""
+    c = get_client()
+    sess = new_session(c)
+    set_budget_api(c, sess, 500)
+    c.post(f"/api/session/clear_budget?session_id={sess}")
+
+    audit_r = c.get(f"/api/audit?session_id={sess}")
+    events = [e["event_type"] for e in audit_r.json()["events"]]
+    assert "BUDGET_CLEARED" in events
+

@@ -135,14 +135,28 @@ def chat(req: ChatRequest):
 
 @app.post("/api/session/set_budget")
 def set_budget(req: SetBudgetRequest):
-    """Explicitly set a spending budget for a session (can also be done via chat)."""
+    """Explicitly set (or clear if amount_inr=0) a spending budget for a session."""
     try:
-        state = session_manager.get_state(req.session_id)
+        session_manager.get_state(req.session_id)
     except KeyError:
         raise HTTPException(404, f"Session '{req.session_id}' not found.")
+    if req.amount_inr <= 0:
+        session_manager.clear_budget(req.session_id)
+        return {"budget_set": False, "budget_cleared": True, "amount_inr": 0}
     amount_paise = int(req.amount_inr * 100)
     session_manager.set_budget(req.session_id, amount_paise)
     return {"budget_set": True, "amount_paise": amount_paise, "amount_inr": req.amount_inr}
+
+
+@app.post("/api/session/clear_budget")
+def clear_budget_endpoint(session_id: str):
+    """Remove the active spending limit from a session."""
+    try:
+        session_manager.get_state(session_id)
+    except KeyError:
+        raise HTTPException(404, f"Session '{session_id}' not found.")
+    session_manager.clear_budget(session_id)
+    return {"budget_cleared": True}
 
 
 @app.post("/api/cart/remove")

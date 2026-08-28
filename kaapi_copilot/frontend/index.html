@@ -358,6 +358,27 @@
   .toast-msg { flex: 1; color: var(--cream); line-height: 1.4; }
   @keyframes slideUp { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
 
+  /* ── Quick-reply chips ── */
+  .chips-row {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-bottom: 10px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 5px 12px;
+    font-size: 12px; color: var(--muted); cursor: pointer;
+    transition: var(--trans); font-family: var(--font);
+    white-space: nowrap;
+  }
+  .chip:hover { border-color: var(--amber); color: var(--amber); background: rgba(245,166,35,.06); }
+
+  /* ── Markdown-lite in chat bubbles ── */
+  .msg-bubble strong, .msg-bubble b { color: inherit; font-weight: 700; }
+  .msg-bubble em, .msg-bubble i { font-style: italic; color: var(--muted); }
+  .msg-bubble code { background: rgba(255,255,255,.08); padding: 1px 5px; border-radius: 4px;
+    font-family: monospace; font-size: 12px; }
+
   /* ── Divider ── */
   .divider { height: 1px; background: var(--border); margin: 16px 0; }
 
@@ -390,24 +411,37 @@
     <div class="card">
       <div class="card-header">
         <span>💬</span>
-        <h3>Conversational Buyer Agent</h3>
+        <h3>AI Barista — Chat &amp; Order</h3>
         <span class="label label-a">JOURNEY A</span>
       </div>
       <div class="card-body">
         <div class="chat-log" id="chatLog"></div>
 
+        <!-- Quick-reply suggestion chips -->
+        <div class="chips-row" id="chipsRow">
+          <button class="chip" onclick="quickSend('Show me your full menu')">📋 Full menu</button>
+          <button class="chip" onclick="quickSend('I want good filter coffee')">🫘 Filter coffee</button>
+          <button class="chip" onclick="quickSend('Keep it under ₹500')">💰 Budget ₹500</button>
+          <button class="chip" onclick="quickSend('Something for pour-over brewing')">⚗️ Pour-over</button>
+          <button class="chip" onclick="quickSend('Checkout')">🛍️ Checkout</button>
+        </div>
+
         <div class="chat-input-row">
           <input class="chat-input" id="msgInput"
-            placeholder="e.g. Don't spend more than ₹500, recommend good filter coffee…"
+            placeholder="Ask me anything — e.g. 'filter coffee under ₹500' or 'show menu'…"
             onkeydown="if(event.key==='Enter')sendMessage()">
           <button class="btn btn-primary" onclick="sendMessage()">Send ↑</button>
         </div>
 
+
         <!-- Guardrail Status Panel -->
         <div class="guardrail-panel">
           <div style="display:flex;align-items:center;justify-content:space-between;">
-            <div class="section-label" style="margin:0;">🛡️ Active Spend Policy Guardrails</div>
-            <span class="badge badge-pass" id="guardrailStatusBadge">Active</span>
+            <div class="section-label" style="margin:0;">🛡️ Spend Guardrails</div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <button class="btn btn-ghost btn-sm" id="clearBudgetBtn" onclick="clearBudget()" style="display:none;">✕ Remove Limit</button>
+              <span class="badge badge-pass" id="guardrailStatusBadge">No Limit</span>
+            </div>
           </div>
           <div class="guardrail-grid">
             <div class="guardrail-item">
@@ -566,6 +600,16 @@ async function checkHealth() {
   }
 }
 
+// ── Lightweight markdown renderer ──
+function renderMarkdown(text) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')   // **bold**
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')                // *italic*
+    .replace(/_(.+?)_/g, '<em>$1</em>')                  // _italic_
+    .replace(/`(.+?)`/g, '<code>$1</code>')              // `code`
+    .replace(/\n/g, '<br>');
+}
+
 // ── Chat ──
 function addMsg(who, text) {
   const log = document.getElementById("chatLog");
@@ -580,8 +624,9 @@ function addMsg(who, text) {
       </div></div>`;
   } else {
     const avatar = who === "buyer" ? "👤" : "☕";
+    const rendered = who === "agent" ? renderMarkdown(text) : text.replace(/\n/g,"<br>");
     div.innerHTML = `<div class="msg-avatar">${avatar}</div>
-      <div class="msg-bubble">${text.replace(/\n/g,"<br>")}</div>`;
+      <div class="msg-bubble">${rendered}</div>`;
   }
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
@@ -592,17 +637,58 @@ function removeTyping() {
   document.getElementById("typingIndicator")?.remove();
 }
 
+// ── Quick-send chips ──
+function quickSend(msg) {
+  const input = document.getElementById("msgInput");
+  input.value = msg;
+  sendMessage();
+}
+
+// ── Clear budget ──
+async function clearBudget() {
+  if (!sessionId) return;
+  try {
+    await api(`/session/clear_budget?session_id=${sessionId}`, { method: "POST" });
+    // Update panel
+    const panel = { budget_limit_paise: null, cart_total_paise: 0,
+                    remaining_budget_paise: null, conversation_state: "DISCOVERY",
+                    decision_log: [] };
+    // Re-fetch cart total by reading current cart
+    updateGuardrailPanel({ budget_limit_paise: null, cart_total_paise: null,
+                           remaining_budget_paise: null, conversation_state: null, decision_log: [] });
+    toast("Spending limit removed! Shop freely 🛍️", "success");
+    addMsg("agent", "Done! Your spending limit has been removed. Shop freely! 🛍️");
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+
 function updateGuardrailPanel(data) {
   const budget = data.budget_limit_paise;
   const total = data.cart_total_paise || 0;
   const rem = data.remaining_budget_paise;
-  const convState = data.conversation_state || "DISCOVERY";
+  const convState = data.conversation_state;
 
-  document.getElementById("g-budget").textContent = budget != null ? `₹${(budget/100).toFixed(0)}` : "No limit";
-  document.getElementById("g-cart").textContent = `₹${(total/100).toFixed(0)}`;
-  
-  const remEl = document.getElementById("g-remaining");
+  const budgetEl = document.getElementById("g-budget");
+  const clearBudgetBtn = document.getElementById("clearBudgetBtn");
+  const badge = document.getElementById("guardrailStatusBadge");
+
   if (budget != null) {
+    budgetEl.textContent = `₹${(budget/100).toFixed(0)}`;
+    budgetEl.style.color = "var(--amber)";
+    if (clearBudgetBtn) clearBudgetBtn.style.display = "";
+    if (badge) { badge.textContent = "Active"; badge.className = "badge badge-pass"; }
+  } else {
+    budgetEl.textContent = "No limit";
+    budgetEl.style.color = "var(--muted)";
+    if (clearBudgetBtn) clearBudgetBtn.style.display = "none";
+    if (badge) { badge.textContent = "No Limit"; badge.className = "badge badge-pending"; }
+  }
+
+  if (total !== null) document.getElementById("g-cart").textContent = `₹${(total/100).toFixed(0)}`;
+
+  const remEl = document.getElementById("g-remaining");
+  if (budget != null && rem != null) {
     remEl.textContent = `₹${(rem/100).toFixed(0)}`;
     remEl.className = rem < 0 ? "guardrail-val block" : rem === 0 ? "guardrail-val warn" : "guardrail-val ok";
   } else {
@@ -610,7 +696,7 @@ function updateGuardrailPanel(data) {
     remEl.className = "guardrail-val ok";
   }
 
-  document.getElementById("g-state").textContent = convState;
+  if (convState) document.getElementById("g-state").textContent = convState;
 
   // Decision log explainability
   if (data.decision_log && data.decision_log.length) {
@@ -911,8 +997,14 @@ refreshOps();
 // Welcome message
 window.addEventListener("DOMContentLoaded", () => {
   setTimeout(() => addMsg("agent",
-    "Hey! I'm Kaapi Copilot ☕ — your AI shopping assistant for Kaapi Roasters.\n" +
-    "Tell me what you're after. Try: <i>\"Don't spend more than ₹500, I want good filter coffee\"</i>"
+    "Hey! ☕ Welcome to **Kaapi Roasters** — I'm your AI barista!\n\n" +
+    "I can help you find the perfect coffee. Here's what I can do:\n\n" +
+    "• **Browse**: *'Show me your menu'*\n" +
+    "• **Set a budget**: *'Keep it under ₹800'*\n" +
+    "• **Remove your limit**: *'Remove my budget limit'*\n" +
+    "• **Add items**: *'I want filter coffee'*\n" +
+    "• **Checkout**: *'I'm ready to pay'*\n\n" +
+    "What are you in the mood for today? ☕"
   ), 300);
 });
 </script>

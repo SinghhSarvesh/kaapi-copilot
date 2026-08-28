@@ -61,6 +61,12 @@ class SessionManager:
         state["budget_limit_paise"] = amount_paise
         audit_trail.log("BUDGET_SET", session_id, {"budget_limit_paise": amount_paise})
 
+    def clear_budget(self, session_id: str) -> None:
+        """Remove any active spending limit, restoring unconstrained shopping."""
+        state = self.get_state(session_id)
+        state["budget_limit_paise"] = None
+        audit_trail.log("BUDGET_CLEARED", session_id, {})
+
     def get_budget(self, session_id: str) -> Optional[int]:
         return self.get_state(session_id).get("budget_limit_paise")
 

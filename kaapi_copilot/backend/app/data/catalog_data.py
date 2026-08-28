@@ -14,19 +14,32 @@ MERCHANT = {
 
 SEED_PRODUCTS = [
     Product("kr-filter-500", "Filter Coffee Powder, 500g", 45000, "powder",
-            "Classic South Indian filter coffee blend.", ["kr-steel-filter"]),
+            "Classic South Indian filter coffee blend — rich, aromatic, bold.",
+            ["kr-steel-filter"]),           # Filter powder → Steel filter (complete brewing setup)
+
     Product("kr-arabica-250", "Single-Origin Arabica Beans, 250g", 38000, "beans",
-            "Light-roast single-origin arabica.", ["kr-dripper"]),
+            "Light-roast single-origin arabica with fruity, floral notes.",
+            ["kr-dripper"]),                # Arabica beans → Pour-over dripper (best brewing method)
+
     Product("kr-steel-filter", "South Indian Steel Filter Set", 65000, "brew-gear",
-            "Traditional stainless steel filter set.", []),
+            "Traditional 3-piece stainless steel filter set — makes authentic decoction.",
+            ["kr-filter-500"]),             # Steel filter → Filter powder (needs coffee to brew)
+
     Product("kr-dripper", "Pour-over Dripper", 90000, "brew-gear",
-            "Ceramic pour-over dripper.", []),
+            "Ceramic pour-over dripper for slow, precise coffee extraction.",
+            ["kr-arabica-250"]),            # Dripper → Arabica beans (best beans for pour-over)
+
     Product("kr-subscription", "Monthly Coffee Subscription (2 bags)", 70000, "subscription",
-            "Two bags delivered monthly.", []),
+            "Two freshly roasted bags delivered every month — never run out.",
+            ["kr-frother"]),                # Subscription → Frother (elevate the daily ritual)
+
     Product("kr-frother", "Milk Frother", 55000, "accessory",
-            "Handheld milk frother.", []),
+            "Handheld milk frother for café-style lattes and cappuccinos at home.",
+            ["kr-subscription"]),           # Frother → Subscription (needs regular coffee too)
+
     Product("kr-filters-100", "Reusable Filter Papers, pack of 100", 25000, "consumable",
-            "Pack of 100 reusable filter papers.", ["kr-dripper"]),
+            "Eco-friendly reusable filter papers — compatible with most pour-over drippers.",
+            ["kr-dripper"]),                # Filter papers → Dripper (complete the setup)
 ]
 
 CATALOG_BY_SKU = {p.sku: p for p in SEED_PRODUCTS}

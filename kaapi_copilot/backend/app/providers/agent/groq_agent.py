@@ -20,18 +20,19 @@ from app.services.session_manager import session_manager
 from app.services.audit_trail import audit_trail
 from app.core.config import settings
 
-SYSTEM_PROMPT = """You are Kaapi Copilot, a helpful shopping assistant for Kaapi Roasters (D2C filter coffee brand).
+SYSTEM_PROMPT = """You are Kaapi Copilot, a friendly and expert AI barista for Kaapi Roasters (D2C filter coffee brand).
 
 HARD RULES — never break these:
 1. Only mention products/prices returned by search_catalog or confirmed by add_to_cart tool results.
-2. Propose AT MOST ONE upsell per turn (via propose_upsell tool), only if it's a catalog-defined pair.
-3. When the buyer mentions a spending limit (e.g. "don't spend more than ₹500"), call set_budget immediately.
-4. When add_to_cart returns {"added": false, "reason": "ITEM_EXCEEDS_BUDGET"}, explain clearly that the item cannot be added because it exceeds their budget. Do NOT retry or try a different item without asking.
-5. When the buyer says "remove", "discard", "take out", or "clear" referring to something IN their cart, call remove_from_cart. Do NOT ask for an order number or email — it is a cart operation, not a subscription cancellation.
-6. When the buyer says "yes" or "confirm" after you asked if they want to checkout, call ready_to_checkout immediately.
-7. Never claim an item is in the cart unless add_to_cart returned {"added": true}.
-8. Use view_cart before making claims about cart contents.
-9. For "remove everything above ₹X": call view_cart, then call remove_from_cart for each item above the limit.
+2. Propose AT MOST ONE upsell per turn (via propose_upsell tool), only if it's a catalog-defined pair. Explain warmly why they pair well.
+3. When the buyer mentions a spending limit (e.g. "don't spend more than ₹500", "budget is ₹800"), call set_budget immediately.
+4. When the buyer asks to remove, lift, or clear their budget limit (e.g. "remove limit", "no budget", "clear spending limit", "unlimited"), call clear_budget immediately.
+5. When add_to_cart returns {"added": false, "reason": "ITEM_EXCEEDS_BUDGET"}, explain clearly that the item cannot be added because it exceeds their budget. Do NOT retry or try a different item without asking.
+6. When the buyer says "remove", "discard", "take out", or "clear" referring to something IN their cart, call remove_from_cart. Do NOT ask for an order number or email — it is a cart operation, not a subscription cancellation.
+7. When the buyer says "yes" or "confirm" after you asked if they want to checkout, call ready_to_checkout immediately.
+8. Never claim an item is in the cart unless add_to_cart returned {"added": true}.
+9. Use view_cart before making claims about cart contents.
+10. For "remove everything above ₹X": call view_cart, then call remove_from_cart for each item above the limit.
 """
 
 TOOLS = [
@@ -56,6 +57,11 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {
             "amount_inr": {"type": "number", "description": "Budget amount in Indian Rupees (e.g. 500 for ₹500)"},
         }, "required": ["amount_inr"]},
+    }},
+    {"type": "function", "function": {
+        "name": "clear_budget",
+        "description": "Remove the buyer's spending limit, allowing unconstrained shopping. Call when buyer asks to remove or clear their budget limit.",
+        "parameters": {"type": "object", "properties": {}},
     }},
     {"type": "function", "function": {
         "name": "view_cart",
@@ -121,7 +127,15 @@ class GroqShoppingAgent(ShoppingAgent):
                 "budget_set": True,
                 "amount_paise": amount_paise,
                 "amount_inr": amount_inr,
-                "message": f"Budget set to \u20b9{amount_inr:.0f}. I'll make sure your cart stays within this limit.",
+                "message": f"Budget set to ₹{amount_inr:.0f}. I'll make sure your cart stays within this limit.",
+            }
+
+        if tool_name == "clear_budget":
+            if session_id:
+                session_manager.clear_budget(session_id)
+            return {
+                "budget_cleared": True,
+                "message": "Spending limit removed. The buyer can now add items freely.",
             }
 
         if tool_name == "view_cart":
