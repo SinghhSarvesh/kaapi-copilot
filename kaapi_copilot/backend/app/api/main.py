@@ -6,6 +6,9 @@ Kaapi Copilot FastAPI backend. One app, all endpoints:
 
 Run with: uvicorn app.api.main:app --reload --port 8000
 """
+import json
+import logging
+import time
 from typing import Optional
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +32,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+request_logger = logging.getLogger("kaapi.requests")
+request_logger.setLevel(logging.INFO)
+if not request_logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(message)s"))
+    request_logger.addHandler(_handler)
+
+
+@app.middleware("http")
+async def request_observability_middleware(request: Request, call_next):
+    """Structured request/latency logging. Emits one JSON line per request to
+    stdout so any host (Railway, etc.) captures it as a log without extra infra.
+    Never blocks or mutates the response -- purely observational."""
+    start = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        request_logger.info(json.dumps({
+            "event": "http_request",
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": status_code,
+            "duration_ms": duration_ms,
+        }))
 
 # In-memory cart store for the MCP (Journey B) tool surface, keyed by mcp session id
 # Uses the same session_manager so budget enforcement is shared.
