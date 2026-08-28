@@ -33,6 +33,7 @@ HARD RULES — never break these:
 8. Never claim an item is in the cart unless add_to_cart returned {"added": true}.
 9. Use view_cart before making claims about cart contents.
 10. For "remove everything above ₹X": call view_cart, then call remove_from_cart for each item above the limit.
+11. When the buyer uses a bare reference like "it", "that", "the first one", "the second one", "both", or "all of them" instead of naming a product, ALWAYS call resolve_last_reference first to get the actual SKU(s) — never guess a SKU from memory or context yourself.
 """
 
 TOOLS = [
@@ -83,6 +84,18 @@ TOOLS = [
         "description": "Signal that the buyer is ready to proceed to payment. Call when buyer says 'checkout', 'pay', 'proceed', or 'yes' after being asked about checkout.",
         "parameters": {"type": "object", "properties": {}},
     }},
+    {"type": "function", "function": {
+        "name": "resolve_last_reference",
+        "description": (
+            "Deterministically resolve a bare reference the buyer just used (e.g. 'it', 'that', "
+            "'the first one', 'the second one', 'both', 'all of them') to concrete SKU(s), using "
+            "server-side session memory. ALWAYS call this instead of guessing a SKU yourself when "
+            "the buyer's message does not name a specific product."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "reference": {"type": "string", "description": "The exact reference phrase used, e.g. 'it', 'the first one', 'both'."},
+        }, "required": ["reference"]},
+    }},
 ]
 
 
@@ -103,10 +116,14 @@ class GroqShoppingAgent(ShoppingAgent):
             results = catalog_service.search(tool_input.get("query", ""))
             if session_id:
                 audit_trail.log("PRODUCT_SEARCHED", session_id, {"query": tool_input.get("query", ""), "results_count": len(results)})
+                session_manager.set_last_shown_skus(session_id, [r["sku"] for r in results])
+                if len(results) == 1:
+                    session_manager.set_last_single_reference(session_id, results[0]["sku"])
             return {"results": results}
 
         if tool_name == "add_to_cart":
             if session_id:
+                session_manager.set_last_single_reference(session_id, tool_input["sku"])
                 # Route through backend validation — budget checked here, not by LLM
                 return session_manager.add_to_cart_validated(session_id, tool_input["sku"])
             # Fallback (no session context — shouldn't happen in Journey A)
@@ -180,6 +197,28 @@ class GroqShoppingAgent(ShoppingAgent):
                 session_manager.set_conversation_state(session_id, ConvState.CHECKOUT_REQUESTED)
             return {"ok": True}
 
+        if tool_name == "resolve_last_reference":
+            reference = (tool_input.get("reference") or "").lower().strip()
+            if not session_id:
+                return {"resolved_skus": [], "reason": "NO_SESSION"}
+            last_shown = session_manager.get_last_shown_skus(session_id)
+            last_single = session_manager.get_last_single_reference(session_id)
+
+            ordinal_map = {"first": 0, "1st": 0, "one": 0, "second": 1, "2nd": 1, "two": 1,
+                           "third": 2, "3rd": 2, "three": 2, "fourth": 3, "4th": 3, "four": 3}
+            if any(w in reference for w in ("both", "all", "the two")):
+                if last_shown:
+                    return {"resolved_skus": last_shown, "source": "last_shown_skus"}
+                return {"resolved_skus": [], "reason": "NO_LISTING_SHOWN"}
+
+            for word, idx in ordinal_map.items():
+                if word in reference and last_shown and idx < len(last_shown):
+                    return {"resolved_skus": [last_shown[idx]], "source": "last_shown_skus"}
+
+            if last_single:
+                return {"resolved_skus": [last_single], "source": "last_single_reference_sku"}
+            return {"resolved_skus": [], "reason": "NO_PRIOR_REFERENCE"}
+
         return {"error": f"unknown tool {tool_name}"}
 
     def handle_turn(self, session_state: dict, user_message: str,
@@ -194,6 +233,12 @@ class GroqShoppingAgent(ShoppingAgent):
             context_note += f"\nActive buyer budget: \u20b9{budget/100:.0f} (enforce strictly)."
         if cart_skus:
             context_note += f"\nCurrent cart SKUs: {cart_skus}."
+        last_shown = session_state.get("last_shown_skus") or []
+        last_single = session_state.get("last_single_reference_sku")
+        if last_shown:
+            context_note += f"\nLast listing shown to buyer (ordered): {last_shown}."
+        if last_single:
+            context_note += f"\nMost recently discussed single product: {last_single}."
         if conv_state == "CHECKOUT_REQUESTED":
             context_note += "\nBuyer previously indicated readiness to checkout. If they say 'yes' or 'confirm', call ready_to_checkout."
 
