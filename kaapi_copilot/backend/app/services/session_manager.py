@@ -45,6 +45,9 @@ class SessionManager:
             # P0 additions
             "budget_limit_paise": None,    # None = no limit set
             "conversation_state": ConvState.DISCOVERY,
+            # Reference resolution — deterministic, never LLM-guessed
+            "last_shown_skus": [],           # ordered SKUs from the most recent listing/menu shown
+            "last_single_reference_sku": None,  # most recently discussed specific product ("it"/"that")
         }
         return session_id
 
@@ -195,6 +198,27 @@ class SessionManager:
     def set_conversation_state(self, session_id: str, new_state: str) -> None:
         state = self.get_state(session_id)
         state["conversation_state"] = new_state
+
+    # ── Reference resolution ─────────────────────────────────────────────────
+
+    def set_last_shown_skus(self, session_id: str, skus: list) -> None:
+        """Record the ordered SKU list from the most recent listing shown to the
+        buyer (menu, search results), so 'the first one' / 'add both' can be
+        resolved deterministically without asking the LLM to guess."""
+        state = self.get_state(session_id)
+        state["last_shown_skus"] = list(skus)
+
+    def get_last_shown_skus(self, session_id: str) -> list:
+        return self.get_state(session_id).get("last_shown_skus", [])
+
+    def set_last_single_reference(self, session_id: str, sku: Optional[str]) -> None:
+        """Record the most recently discussed specific product so a bare
+        'it' / 'that' / 'add it' can be resolved to a concrete SKU."""
+        state = self.get_state(session_id)
+        state["last_single_reference_sku"] = sku
+
+    def get_last_single_reference(self, session_id: str) -> Optional[str]:
+        return self.get_state(session_id).get("last_single_reference_sku")
 
     # ── Agent response application ──────────────────────────────────────────
 
