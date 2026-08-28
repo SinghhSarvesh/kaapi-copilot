@@ -43,6 +43,15 @@ DECLINE_PHRASES    = ["no thanks", "no thank you", "not now", "skip", "don't nee
 ACCEPT_PHRASES     = ["yes", "sure", "add it", "sounds good", "okay", "ok", "yeah",
                       "add that", "go ahead", "please", "absolutely", "perfect", "great",
                       "do it", "add", "yep", "yup"]
+BARE_REFERENCE_PHRASES = ["it", "that", "that one", "this", "this one", "add it",
+                          "add that", "get it", "get that", "i want it", "i want that"]
+ORDINAL_PATTERNS = {
+    "first": 0, "1st": 0, "one": 0,
+    "second": 1, "2nd": 1, "two": 1,
+    "third": 2, "3rd": 2, "three": 2,
+    "fourth": 3, "4th": 3, "four": 3,
+}
+BOTH_PHRASES = ["both", "all of them", "all", "the two"]
 REMOVE_PHRASES     = ["remove", "discard", "take out", "delete", "drop", "don't want",
                       "dont want", "cancel", "take off", "get rid"]
 CLEAR_PHRASES      = ["clear cart", "clear my cart", "empty cart", "start over",
@@ -202,6 +211,8 @@ class MockShoppingAgent(ShoppingAgent):
 
         # ── 2. Menu / catalog request ────────────────────────────────────────
         if any(p in text for p in MENU_PHRASES):
+            if session_id:
+                session_manager.set_last_shown_skus(session_id, [p["sku"] for p in catalog_service.list_products()])
             return AgentResponse(reply=self._menu_text(), decision_log=decision_log)
 
         # ── 3. Help ──────────────────────────────────────────────────────────
@@ -331,6 +342,45 @@ class MockShoppingAgent(ShoppingAgent):
 
         # ── 9. Product discovery ─────────────────────────────────────────────
         matched = self._match_products(text)
+
+        if not matched and session_id:
+            last_shown = session_manager.get_last_shown_skus(session_id)
+            last_single = session_manager.get_last_single_reference(session_id)
+
+            # "add both" / "all of them" — apply to the most recently shown listing
+            if any(p in text for p in BOTH_PHRASES) and last_shown:
+                added_names, added_skus = [], []
+                for sku in last_shown:
+                    result = session_manager.add_to_cart_validated(session_id, sku)
+                    if result.get("added"):
+                        added_skus.append(sku)
+                        p = catalog_service.get_product(sku)
+                        added_names.append(p["name"] if p else sku)
+                        decision_log.append({"action": f"ADD {sku}", "decision": "ALLOWED"})
+                    else:
+                        decision_log.append({"action": f"ADD {sku}", "decision": "BLOCKED",
+                                             "reason": result.get("reason")})
+                if added_skus:
+                    new_total = session_manager.get_cart_total_paise(session_id)
+                    return AgentResponse(
+                        reply=f"Added **{', '.join(added_names)}** ✓\nCart total: **{self._fmt_price(new_total)}**.",
+                        add_to_cart_skus=added_skus, decision_log=decision_log,
+                    )
+                return AgentResponse(
+                    reply="I couldn't add those — check if they fit your budget or are already in your cart.",
+                    decision_log=decision_log,
+                )
+
+            # Ordinal reference — "the first one" / "the second one" against the last listing shown
+            for word, idx in ORDINAL_PATTERNS.items():
+                if word in text and last_shown and idx < len(last_shown):
+                    matched = [last_shown[idx]]
+                    break
+
+            # Bare reference — "it" / "that" / "add it" -> most recently discussed product
+            if not matched and last_single and any(p in text for p in BARE_REFERENCE_PHRASES):
+                matched = [last_single]
+
         if not matched:
             # Friendly fallback with gentle prompts
             greetings = ["hi", "hello", "hey", "namaste", "hola", "good morning",
@@ -370,6 +420,7 @@ class MockShoppingAgent(ShoppingAgent):
                 new_total = result.get("new_cart_total_paise", 0)
                 decision_log.append({"action": f"ADD {primary_sku}", "decision": "ALLOWED",
                                      "new_total_paise": new_total})
+                session_manager.set_last_single_reference(session_id, primary_sku)
                 budget_note = ""
                 if result.get("remaining_budget_paise") is not None:
                     budget_note = f" You have **{self._fmt_price(result['remaining_budget_paise'])}** left in your budget."
@@ -381,6 +432,7 @@ class MockShoppingAgent(ShoppingAgent):
             else:
                 decision_log.append({"action": f"ADD {primary_sku}", "decision": "BLOCKED",
                                      "reason": result.get("reason")})
+                session_manager.set_last_single_reference(session_id, primary_sku)
                 pname = product["name"]
                 return AgentResponse(
                     reply=f"⚠️ {result.get('message', f'{pname} cannot be added.')}",
@@ -392,6 +444,8 @@ class MockShoppingAgent(ShoppingAgent):
                 f"{emoji} **{product['name']}** — {self._fmt_price(product['price_paise'])}\n"
                 f"_{product['description']}_"
             )
+            if session_id:
+                session_manager.set_last_single_reference(session_id, primary_sku)
 
         # ── 10. Upsell — budget-checked, contextual, with proper copy ────────
         upsell_sku, upsell_reason = None, ""
@@ -405,6 +459,8 @@ class MockShoppingAgent(ShoppingAgent):
                 upsell_sku = upsell["sku"]
                 upsell_reason = self._get_upsell_pitch(primary_sku, upsell_sku)
                 reply += f"\n\n{upsell_reason}"
+                if session_id:
+                    session_manager.set_last_single_reference(session_id, upsell_sku)
 
         return AgentResponse(
             reply=reply,
