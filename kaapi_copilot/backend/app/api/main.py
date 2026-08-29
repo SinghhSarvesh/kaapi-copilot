@@ -6,12 +6,14 @@ Kaapi Copilot FastAPI backend. One app, all endpoints:
 
 Run with: uvicorn app.api.main:app --reload --port 8000
 """
+import asyncio
 import json
 import logging
 import time
-from typing import Optional
+from typing import Optional, List, AsyncGenerator
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.core.config import settings
@@ -71,6 +73,7 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     buyer_ref: str = "buyer_web"
     message: str
+    conversation_history: List[dict] = []
 
 
 class ConfirmRequest(BaseModel):
@@ -122,9 +125,9 @@ def health():
     return {"status": "ok", **settings.summary()}
 
 
-# ---------------- Journey A: conversational chat ----------------
-@app.post("/api/chat")
-def chat(req: ChatRequest):
+# ---------------- Shared chat helper ----------------
+def _execute_chat(req: ChatRequest):
+    """Core chat logic shared between /api/chat and /api/chat/stream."""
     session_id = req.session_id or session_manager.create_session(req.buyer_ref)
     try:
         state = session_manager.get_state(session_id)
@@ -132,9 +135,18 @@ def chat(req: ChatRequest):
         raise HTTPException(404, f"Session '{session_id}' not found. Start a new session by omitting session_id.")
     audit_trail.log("chat_message_received", session_id, {"buyer_ref": req.buyer_ref, "message": req.message})
 
+    # Retrieve server-side history; if client sent history use it as fallback for new sessions
+    server_history = session_manager.get_history(session_id, max_turns=20)
+    history = server_history if server_history else req.conversation_history
+
     agent = get_shopping_agent()
-    # Pass session_id so the agent's tool handlers can call session_manager for budget enforcement
-    response = agent.handle_turn(state, req.message, session_id=session_id)
+    response = agent.handle_turn(state, req.message, session_id=session_id,
+                                  conversation_history=history)
+
+    # Persist this turn to server-side history
+    session_manager.append_to_history(session_id, "user", req.message)
+    session_manager.append_to_history(session_id, "assistant", response.reply)
+
     session_manager.apply_agent_response(session_id, response)
     audit_trail.log("agent_turn", session_id, {
         "reply": response.reply,
@@ -163,6 +175,62 @@ def chat(req: ChatRequest):
         "conversation_state": state.get("conversation_state"),
         "decision_log": response.decision_log,
     }
+
+
+# ---------------- Journey A: conversational chat ----------------
+@app.post("/api/chat")
+def chat(req: ChatRequest):
+    return _execute_chat(req)
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """SSE streaming endpoint. Computes the full response synchronously (preserving
+    all guardrail logic), then streams the reply text token-by-token so the frontend
+    can render words as they arrive. Ends with a [DONE] event containing full payload."""
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        try:
+            # Run sync agent logic in a thread to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+            data = await loop.run_in_executor(None, _execute_chat, req)
+        except HTTPException as exc:
+            err = json.dumps({"type": "error", "message": exc.detail, "status": exc.status_code})
+            yield f"data: {err}\n\n"
+            return
+        except Exception as exc:
+            err = json.dumps({"type": "error", "message": str(exc)})
+            yield f"data: {err}\n\n"
+            return
+
+        # Stream reply text word-by-word with small delays for perceived streaming
+        reply_text = data.get("reply", "")
+        words = reply_text.split(" ")
+        chunk = ""
+        for i, word in enumerate(words):
+            chunk += word
+            if i < len(words) - 1:
+                chunk += " "
+            # Emit every 2 words to reduce overhead while still feeling streamed
+            if (i % 2 == 1) or (i == len(words) - 1):
+                token_event = json.dumps({"type": "token", "text": chunk})
+                yield f"data: {token_event}\n\n"
+                chunk = ""
+                await asyncio.sleep(0.022)  # ~22ms between chunks → ~45 chunks/sec
+
+        # Final event with complete structured payload (cart, guardrail data, etc.)
+        done_payload = {**data, "type": "done"}
+        yield f"data: {json.dumps(done_payload)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",   # disable Nginx buffering
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @app.post("/api/session/set_budget")

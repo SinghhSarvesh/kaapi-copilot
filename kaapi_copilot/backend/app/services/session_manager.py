@@ -40,6 +40,7 @@ class SessionManager:
             "upsell_offered": [],
             "pending_upsell": None,
             "history": [],
+            "conversation_history": [],      # multi-turn LLM context turns [{"role": "user"|"assistant", "content": ...}]
             "upsells_accepted": 0,
             "upsells_offered_count": 0,
             # P0 additions
@@ -55,6 +56,24 @@ class SessionManager:
         if session_id not in self._sessions:
             raise KeyError(f"Unknown session {session_id}")
         return self._sessions[session_id]
+
+    # ── Conversation history (multi-turn LLM context) ───────────────────────
+
+    def append_to_history(self, session_id: str, role: str, content: str) -> None:
+        """Append a user or assistant message to the conversation history."""
+        state = self.get_state(session_id)
+        history = state.setdefault("conversation_history", [])
+        history.append({"role": role, "content": content})
+        # Keep at most 100 messages (~50 turns) to avoid unbounded growth
+        if len(history) > 100:
+            state["conversation_history"] = history[-100:]
+
+    def get_history(self, session_id: str, max_turns: int = 20) -> list:
+        """Return the last max_turns conversation turns as {role, content} dicts."""
+        state = self.get_state(session_id)
+        history = state.get("conversation_history", [])
+        # Each turn = 2 messages (user + assistant), so last max_turns*2 items
+        return history[-(max_turns * 2):]
 
     # ── Budget ─────────────────────────────────────────────────────────────
 

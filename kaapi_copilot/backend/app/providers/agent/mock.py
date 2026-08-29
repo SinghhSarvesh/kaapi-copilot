@@ -168,7 +168,8 @@ class MockShoppingAgent(ShoppingAgent):
     # ── Main turn handler ─────────────────────────────────────────────────────
 
     def handle_turn(self, session_state: dict, user_message: str,
-                    session_id: Optional[str] = None) -> AgentResponse:
+                    session_id: Optional[str] = None,
+                    conversation_history: Optional[list] = None) -> AgentResponse:
         text = user_message.lower().strip()
         cart_skus      = session_state.get("cart_skus", [])
         upsell_offered = session_state.get("upsell_offered", [])

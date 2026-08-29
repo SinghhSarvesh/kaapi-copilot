@@ -222,7 +222,8 @@ class GroqShoppingAgent(ShoppingAgent):
         return {"error": f"unknown tool {tool_name}"}
 
     def handle_turn(self, session_state: dict, user_message: str,
-                    session_id: Optional[str] = None) -> AgentResponse:
+                    session_id: Optional[str] = None,
+                    conversation_history: Optional[list] = None) -> AgentResponse:
         # Build context-aware system message including live budget/cart info
         budget = session_state.get("budget_limit_paise")
         cart_skus = session_state.get("cart_skus", [])
@@ -244,10 +245,19 @@ class GroqShoppingAgent(ShoppingAgent):
 
         system_content = SYSTEM_PROMPT + context_note
 
-        messages = [
-            {"role": "system", "content": system_content},
-            {"role": "user", "content": user_message},
-        ]
+        # Build messages: system + conversation history (sliding window) + current user message
+        messages = [{"role": "system", "content": system_content}]
+
+        # Inject recent conversation history for multi-turn context (last 20 turns = 40 messages)
+        if conversation_history:
+            history_window = conversation_history[-40:]
+            for h in history_window:
+                role = h.get("role", "user")
+                content = h.get("content", "")
+                if role in ("user", "assistant") and content:
+                    messages.append({"role": role, "content": content})
+
+        messages.append({"role": "user", "content": user_message})
         add_to_cart_skus, remove_from_cart_skus = [], []
         upsell_sku, upsell_reason, ready = None, "", False
         upsell_count = 0

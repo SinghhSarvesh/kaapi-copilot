@@ -24,8 +24,10 @@ class ShoppingAgent(ABC):
 
     @abstractmethod
     def handle_turn(self, session_state: dict, user_message: str,
-                    session_id: Optional[str] = None) -> AgentResponse:
+                    session_id: Optional[str] = None,
+                    conversation_history: Optional[list] = None) -> AgentResponse:
         """
         session_state: live dict from session_manager (budget, cart, conv_state, etc.)
         session_id: passed so tool handlers can call session_manager directly for mutations
+        conversation_history: optional list of previous turns [{"role": "user"|"assistant", "content": ...}]
         """

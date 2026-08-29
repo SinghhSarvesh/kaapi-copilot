@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Kaapi Copilot — AI Commerce</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
@@ -37,7 +37,7 @@
     font-family: var(--font);
     background: var(--bg);
     color: var(--cream);
-    min-height: 100vh;
+    min-height: 100dvh;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
   }
@@ -384,6 +384,69 @@
 
   /* ── Scrollbar global ── */
   * { scrollbar-width: thin; scrollbar-color: var(--surface3) transparent; }
+
+  /* ── Streaming cursor ── */
+  .cursor { display:inline-block; width:2px; height:1em; background:var(--amber); margin-left:2px; vertical-align:middle; animation:blink .7s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  /* ── Stream / error bubble variants ── */
+  .msg.agent .msg-bubble.streaming { border-color: rgba(245,166,35,.3); }
+  .msg.agent .msg-bubble.stopped-bubble { opacity: .85; border-color: rgba(245,166,35,.2); }
+  .msg.agent .msg-bubble.error-bubble { border-color: rgba(224,92,92,.3); background: rgba(224,92,92,.08); }
+
+  /* ── Message action buttons (retry, edit) ── */
+  .msg-actions { display:flex; gap:6px; align-items:center; padding:2px 4px; }
+  .msg-action-btn { background:none; border:none; cursor:pointer; color:var(--muted); font-size:11px; padding:3px 6px; border-radius:4px; transition:var(--trans); min-height:24px; }
+  .msg-action-btn:hover { color:var(--cream); background:var(--surface3); }
+  .msg-action-btn.retry-btn { color:var(--amber); }
+  .msg-action-btn.retry-btn:hover { background:rgba(245,166,35,.1); }
+
+  /* ── Stop button ── */
+  .btn-stop { background:rgba(224,92,92,.15); color:var(--red); border:1px solid rgba(224,92,92,.35); }
+  .btn-stop:hover { background:rgba(224,92,92,.25); }
+  .btn-stop:disabled { opacity:.38; cursor:not-allowed; }
+
+  /* ── Textarea for chat input ── */
+  .chat-input { resize:none; min-height:44px; max-height:140px; overflow-y:auto; line-height:1.5; }
+
+  /* ── Jump to latest button ── */
+  #jumpBtn {
+    position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
+    background:var(--surface2); border:1px solid var(--amber); border-radius:999px;
+    padding:5px 14px; font-size:12px; color:var(--amber); cursor:pointer;
+    transition:var(--trans); white-space:nowrap; z-index:10;
+    box-shadow:0 4px 16px rgba(0,0,0,.4);
+    display:none;
+  }
+  #jumpBtn:hover { background:rgba(245,166,35,.12); }
+
+  /* ── Onboarding empty state ── */
+  .onboarding { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:24px 8px; text-align:center; min-height:200px; }
+  .onboarding-icon { font-size:40px; }
+  .onboarding-title { font-size:18px; color:var(--cream); line-height:1.3; }
+  .onboarding-title span { color:var(--amber); }
+  .onboarding-sub { font-size:13px; color:var(--muted); max-width:300px; line-height:1.5; }
+  .starter-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; width:100%; max-width:360px; }
+  .starter-btn {
+    background:var(--surface2); border:1px solid var(--border); border-radius:8px;
+    padding:10px 12px; font-size:12px; color:var(--muted); cursor:pointer;
+    text-align:left; transition:var(--trans); min-height:48px; display:flex; align-items:center; gap:8px;
+    font-family:var(--font);
+  }
+  .starter-btn:hover { border-color:var(--amber); color:var(--cream); background:rgba(245,166,35,.06); }
+
+  /* ── Chat log: allow flexible height ── */
+  .chat-log { position:relative; }
+
+  /* ── New Chat button in header ── */
+  .btn-new-chat { min-height:38px; padding:7px 14px; font-size:12px; }
+
+  /* ── Mobile ── */
+  @media(max-width:480px) {
+    .starter-grid { grid-template-columns:1fr; }
+    .btn { min-height:44px; }
+    .chip { min-height:38px; }
+  }
 </style>
 </head>
 <body>
@@ -398,9 +461,12 @@
         <div style="font-size:11px;color:var(--muted);margin-top:1px;">Deterministic Guardrails · Autonomous AI Commerce</div>
       </div>
     </div>
-    <div class="status-pill" onclick="checkHealth()" title="Click to refresh status">
-      <div class="status-dot" id="statusDot"></div>
-      <span id="statusText">Checking…</span>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-ghost btn-new-chat" onclick="newChat()">✦ New Chat</button>
+      <div class="status-pill" onclick="checkHealth()" title="Click to refresh status">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Checking…</span>
+      </div>
     </div>
   </header>
 
@@ -415,7 +481,26 @@
         <span class="label label-a">JOURNEY A</span>
       </div>
       <div class="card-body">
-        <div class="chat-log" id="chatLog"></div>
+        <div class="chat-log" id="chatLog">
+          <!-- Onboarding empty state -->
+          <div class="onboarding" id="onboarding">
+            <div class="onboarding-icon">☕</div>
+            <div class="onboarding-title">Welcome to <span>Kaapi Roasters</span></div>
+            <div class="onboarding-sub">Your AI barista is ready. Ask anything about our filter coffees, set a budget, or start shopping — I've got you.</div>
+            <div class="starter-grid">
+              <button class="starter-btn" onclick="quickSend('Show me your full menu')">📋 Browse full menu</button>
+              <button class="starter-btn" onclick="quickSend('I want good filter coffee under ₹500')">🫘 Filter coffee &lt;₹500</button>
+              <button class="starter-btn" onclick="quickSend('Something for pour-over brewing')">⚗️ Pour-over setup</button>
+              <button class="starter-btn" onclick="quickSend('Keep my spending under ₹800')">💰 Set budget ₹800</button>
+              <button class="starter-btn" onclick="quickSend('Recommend a gift for a coffee lover')">🎁 Gift for coffee lover</button>
+              <button class="starter-btn" onclick="quickSend('What is your best coffee subscription?')">📦 Monthly subscription</button>
+            </div>
+          </div>
+        </div>
+        <!-- Jump-to-latest button (positioned relative to chat-log) -->
+        <div style="position:relative;height:0;">
+          <button id="jumpBtn" onclick="scrollToBottom(true)">↓ Jump to latest</button>
+        </div>
 
         <!-- Quick-reply suggestion chips -->
         <div class="chips-row" id="chipsRow">
@@ -427,10 +512,12 @@
         </div>
 
         <div class="chat-input-row">
-          <input class="chat-input" id="msgInput"
+          <textarea class="chat-input" id="msgInput" rows="1"
             placeholder="Ask me anything — e.g. 'filter coffee under ₹500' or 'show menu'…"
-            onkeydown="if(event.key==='Enter')sendMessage()">
-          <button class="btn btn-primary" onclick="sendMessage()">Send ↑</button>
+            onkeydown="handleInputKey(event)"
+            oninput="autoResizeTextarea(this)"></textarea>
+          <button class="btn btn-primary" id="sendBtn" onclick="sendMessage()">Send ↑</button>
+          <button class="btn btn-stop" id="stopBtn" onclick="stopGenerating()" style="display:none;">⏹ Stop</button>
         </div>
 
 
@@ -563,17 +650,38 @@
 <script>
 // ── Config ──
 const API = "https://kaapi-copilot-production.up.railway.app/api";
+const LS_KEY = "kaapi_chat_v2";
 
 let sessionId = null, currentMandateId = null, currentOrderId = null;
+let isSending = false;
+let abortController = null;
+let conversationHistory = [];  // [{role, content}, ...] for multi-turn context
+let _userScrolledUp = false;
+
+// ── Persistence ──
+function saveToStorage() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ sessionId, conversationHistory, savedAt: Date.now() })); } catch(e) {}
+}
+function loadFromStorage() {
+  try {
+    const d = JSON.parse(localStorage.getItem(LS_KEY) || "null");
+    if (!d) return null;
+    if (Date.now() - (d.savedAt || 0) > 86400000) { localStorage.removeItem(LS_KEY); return null; }
+    return d;
+  } catch(e) { return null; }
+}
+function clearStorage() { try { localStorage.removeItem(LS_KEY); } catch(e) {} }
 
 // ── Toast system ──
 function toast(msg, type = "info") {
   const icons = { info: "ℹ️", success: "✅", error: "❌" };
   const el = document.createElement("div");
   el.className = `toast ${type}`;
-  el.innerHTML = `<span class="toast-icon">${icons[type]}</span><span class="toast-msg">${msg}</span>`;
+  const ic = document.createElement("span"); ic.className = "toast-icon"; ic.textContent = icons[type] || "ℹ️";
+  const ms = document.createElement("span"); ms.className = "toast-msg"; ms.textContent = msg;
+  el.appendChild(ic); el.appendChild(ms);
   document.getElementById("toastContainer").appendChild(el);
-  setTimeout(() => el.remove(), 4000);
+  setTimeout(() => el.remove(), 4500);
 }
 
 // ── HTTP helper ──
@@ -600,9 +708,16 @@ async function checkHealth() {
   }
 }
 
-// ── Lightweight markdown renderer ──
+// ── HTML escape (prevents XSS) ──
+function escapeHtml(str) {
+  const d = document.createElement("div");
+  d.appendChild(document.createTextNode(String(str)));
+  return d.innerHTML;
+}
+
+// ── Lightweight markdown renderer (escape first, then apply formatting) ──
 function renderMarkdown(text) {
-  return text
+  return escapeHtml(text)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')   // **bold**
     .replace(/\*(.+?)\*/g, '<em>$1</em>')                // *italic*
     .replace(/_(.+?)_/g, '<em>$1</em>')                  // _italic_
@@ -611,9 +726,10 @@ function renderMarkdown(text) {
 }
 
 // ── Chat ──
-function addMsg(who, text) {
+function addMsg(who, text, opts) {
   const log = document.getElementById("chatLog");
   const isTyping = who === "_typing";
+  if (!isTyping) { const ob = document.getElementById("onboarding"); if (ob) ob.style.display = "none"; }
   const div = document.createElement("div");
   div.className = `msg ${isTyping ? "agent" : who}`;
   if (isTyping) {
@@ -624,17 +740,156 @@ function addMsg(who, text) {
       </div></div>`;
   } else {
     const avatar = who === "buyer" ? "👤" : "☕";
-    const rendered = who === "agent" ? renderMarkdown(text) : text.replace(/\n/g,"<br>");
-    div.innerHTML = `<div class="msg-avatar">${avatar}</div>
-      <div class="msg-bubble">${rendered}</div>`;
+    const body = document.createElement("div");
+    body.className = "msg-body";
+    const bubble = document.createElement("div");
+    bubble.className = "msg-bubble" + ((opts && opts.streaming) ? " streaming" : "") + ((opts && opts.error) ? " error-bubble" : "");
+    if (opts && opts.streaming) {
+      bubble.innerHTML = '<span class="cursor" id="streamCursor"></span>';
+    } else if (who === "agent") {
+      bubble.innerHTML = renderMarkdown(text);
+    } else {
+      bubble.textContent = text;
+    }
+    body.appendChild(bubble);
+
+    const actions = document.createElement("div");
+    actions.className = "msg-actions";
+    if (who === "buyer" && opts && opts.onEdit) {
+      const eb = document.createElement("button");
+      eb.className = "msg-action-btn";
+      eb.textContent = "✎ Edit";
+      eb.onclick = opts.onEdit;
+      actions.appendChild(eb);
+    }
+    if (who === "agent" && opts && opts.error && opts.onRetry) {
+      const rb = document.createElement("button");
+      rb.className = "msg-action-btn retry-btn";
+      rb.textContent = "↩ Retry";
+      rb.onclick = opts.onRetry;
+      actions.appendChild(rb);
+    }
+    if (actions.children.length) body.appendChild(actions);
+
+    div.innerHTML = `<div class="msg-avatar">${avatar}</div>`;
+    div.appendChild(body);
   }
   log.appendChild(div);
-  log.scrollTop = log.scrollHeight;
+  scrollToBottom();
   return div;
 }
 
 function removeTyping() {
   document.getElementById("typingIndicator")?.remove();
+}
+
+// ── Scroll helpers ──
+function onChatScroll() {
+  const log = document.getElementById("chatLog");
+  _userScrolledUp = (log.scrollHeight - log.scrollTop - log.clientHeight) > 80;
+  const jb = document.getElementById("jumpBtn");
+  if (jb) jb.style.display = _userScrolledUp ? "" : "none";
+}
+function scrollToBottom(force) {
+  const log = document.getElementById("chatLog");
+  if (force || !_userScrolledUp) {
+    log.scrollTop = log.scrollHeight;
+    _userScrolledUp = false;
+    const jb = document.getElementById("jumpBtn");
+    if (jb) jb.style.display = "none";
+  }
+}
+
+// ── Streaming bubble helpers ──
+function updateStreamBubble(el, text) {
+  const b = el ? el.querySelector(".msg-bubble") : null; if (!b) return;
+  const cur = document.getElementById("streamCursor"); if (cur) cur.remove();
+  b.innerHTML = renderMarkdown(text);
+  const nc = document.createElement("span"); nc.className = "cursor"; nc.id = "streamCursor"; b.appendChild(nc);
+  scrollToBottom();
+}
+function finaliseStreamBubble(el, text, opts = {}) {
+  const b = el ? el.querySelector(".msg-bubble") : null; if (!b) return;
+  b.classList.remove("streaming");
+  if (opts.stopped) b.classList.add("stopped-bubble");
+  if (opts.error) b.classList.add("error-bubble");
+  const cur = document.getElementById("streamCursor"); if (cur) cur.remove();
+  b.innerHTML = renderMarkdown(text + (opts.stopped ? " ·· *[stopped]*" : ""));
+  const body = el.querySelector(".msg-body");
+  if (body && (opts.stopped || opts.error) && opts.retryMsg) {
+    const acts = document.createElement("div"); acts.className = "msg-actions";
+    const rb = document.createElement("button"); rb.className = "msg-action-btn retry-btn";
+    rb.textContent = "↩ Retry";
+    rb.onclick = () => retryLastMessage(opts.retryMsg);
+    acts.appendChild(rb);
+    body.appendChild(acts);
+  }
+}
+
+// ── Textarea auto-resize ──
+function autoResizeTextarea(el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 140) + "px"; }
+function handleInputKey(e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }
+
+// ── Sending state ──
+function setSending(active) {
+  isSending = active;
+  const sendBtn = document.getElementById("sendBtn"), stopBtn = document.getElementById("stopBtn");
+  if (sendBtn) sendBtn.style.display = active ? "none" : "";
+  if (stopBtn) stopBtn.style.display = active ? "" : "none";
+  const inp = document.getElementById("msgInput"); if (inp) inp.disabled = active;
+}
+function stopGenerating() { if (abortController) { abortController.abort(); abortController = null; } }
+
+// ── New Chat ──
+function newChat() {
+  if (isSending) stopGenerating();
+  sessionId = null; conversationHistory = []; currentMandateId = null; currentOrderId = null;
+  clearStorage();
+  const log = document.getElementById("chatLog");
+  log.innerHTML = `<div class="onboarding" id="onboarding">
+    <div class="onboarding-icon">☕</div>
+    <div class="onboarding-title">Welcome to <span>Kaapi Roasters</span></div>
+    <div class="onboarding-sub">Your AI barista is ready. Ask anything about our filter coffees, set a budget, or start shopping — I've got you.</div>
+    <div class="starter-grid">
+      <button class="starter-btn" onclick="quickSend('Show me your full menu')">📋 Browse full menu</button>
+      <button class="starter-btn" onclick="quickSend('I want good filter coffee under ₹500')">🫘 Filter coffee &lt;₹500</button>
+      <button class="starter-btn" onclick="quickSend('Something for pour-over brewing')">⚗️ Pour-over setup</button>
+      <button class="starter-btn" onclick="quickSend('Keep my spending under ₹800')">💰 Set budget ₹800</button>
+      <button class="starter-btn" onclick="quickSend('Recommend a gift for a coffee lover')">🎁 Gift for coffee lover</button>
+      <button class="starter-btn" onclick="quickSend('What is your best coffee subscription?')">📦 Monthly subscription</button>
+    </div>
+  </div>`;
+  renderCart([]);
+  updateGuardrailPanel({ budget_limit_paise: null, cart_total_paise: 0, remaining_budget_paise: null, conversation_state: "DISCOVERY", decision_log: [] });
+  const secs = ["mandateSection", "orderSection", "decisionSection"];
+  secs.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = "none"; });
+  const payBtn = document.getElementById("payBtn"); if (payBtn) payBtn.disabled = true;
+  setSending(false);
+  toast("New chat started ✦", "success");
+}
+
+// ── Retry & Edit ──
+function retryLastMessage(msg) {
+  const h = conversationHistory;
+  if (h.length >= 2 && h[h.length-1].role === "assistant" && h[h.length-2].role === "user") h.splice(-2, 2);
+  else if (h.length && h[h.length-1].role === "user") h.pop();
+  sendMessage(msg);
+}
+
+function editMessage(el, original) {
+  const input = document.getElementById("msgInput");
+  input.value = original;
+  input.focus();
+  autoResizeTextarea(input);
+  const next = el.nextElementSibling;
+  el.remove();
+  if (next && next.classList.contains("msg") && next.classList.contains("agent")) next.remove();
+  for (let i = conversationHistory.length - 1; i >= 0; i--) {
+    if (conversationHistory[i].role === "user" && conversationHistory[i].content === original) {
+      conversationHistory.splice(i);
+      break;
+    }
+  }
 }
 
 // ── Quick-send chips ──
@@ -649,15 +904,13 @@ async function clearBudget() {
   if (!sessionId) return;
   try {
     await api(`/session/clear_budget?session_id=${sessionId}`, { method: "POST" });
-    // Update panel
-    const panel = { budget_limit_paise: null, cart_total_paise: 0,
-                    remaining_budget_paise: null, conversation_state: "DISCOVERY",
-                    decision_log: [] };
-    // Re-fetch cart total by reading current cart
     updateGuardrailPanel({ budget_limit_paise: null, cart_total_paise: null,
                            remaining_budget_paise: null, conversation_state: null, decision_log: [] });
     toast("Spending limit removed! Shop freely 🛍️", "success");
-    addMsg("agent", "Done! Your spending limit has been removed. Shop freely! 🛍️");
+    const reply = "Done! Your spending limit has been removed. Shop freely! 🛍️";
+    addMsg("agent", reply);
+    conversationHistory.push({ role: "assistant", content: reply });
+    saveToStorage();
   } catch (e) {
     toast(e.message, "error");
   }
@@ -724,15 +977,15 @@ function renderCart(skus) {
     const name = sku.replace(/kr-/,"").replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase());
     return `<div class="cart-item">
       <span class="cart-item-icon">☕</span>
-      <span class="cart-item-name">${name}</span>
-      <span class="cart-item-price" id="price-${sku}">…</span>
-      <button class="cart-item-remove" onclick="removeItem('${sku}')" title="Remove item">✕</button>
+      <span class="cart-item-name">${escapeHtml(name)}</span>
+      <span class="cart-item-price" id="price-${escapeHtml(sku)}">…</span>
+      <button class="cart-item-remove" onclick="removeItem('${escapeHtml(sku)}')" title="Remove item">✕</button>
     </div>`;
   }).join("");
   // Fetch prices lazily
   skus.forEach(async sku => {
     try {
-      const p = await api(`/mcp/get_product?sku=${sku}`);
+      const p = await api(`/mcp/get_product?sku=${encodeURIComponent(sku)}`);
       const el = document.getElementById(`price-${sku}`);
       if (el) el.textContent = `₹${(p.price_paise/100).toFixed(0)}`;
     } catch {}
@@ -742,7 +995,7 @@ function renderCart(skus) {
 async function removeItem(sku) {
   if (!sessionId) return;
   try {
-    const r = await api(`/cart/remove?session_id=${sessionId}&sku=${sku}`, { method: "POST" });
+    const r = await api(`/cart/remove?session_id=${sessionId}&sku=${encodeURIComponent(sku)}`, { method: "POST" });
     renderCart(r.cart_skus);
     document.getElementById("g-cart").textContent = `₹${(r.cart_total_paise/100).toFixed(0)}`;
     toast(`Removed ${r.product_name || sku} from cart`, "info");
@@ -765,29 +1018,86 @@ async function clearCart() {
   }
 }
 
-async function sendMessage() {
+async function sendMessage(overrideMsg) {
+  if (isSending) return;
   const input = document.getElementById("msgInput");
-  const msg = input.value.trim();
+  const msg = overrideMsg !== undefined ? overrideMsg : input.value.trim();
   if (!msg) return;
-  input.value = "";
-  addMsg("buyer", msg);
+  if (!overrideMsg) { input.value = ""; input.style.height = "auto"; }
+
+  const userEl = addMsg("buyer", msg, { onEdit: () => editMessage(userEl, msg) });
+  setSending(true);
+  abortController = new AbortController();
+  const signal = abortController.signal;
   addMsg("_typing");
+  conversationHistory.push({ role: "user", content: msg });
+
+  let streamEl = null, accumulated = "", finalData = null;
+
   try {
-    const data = await api("/chat", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ session_id: sessionId, buyer_ref: "web_buyer", message: msg }),
+    const resp = await fetch(`${API}/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sessionId,
+        buyer_ref: "web_buyer",
+        message: msg,
+        conversation_history: conversationHistory.slice(-40),
+      }),
+      signal,
     });
+    if (!resp.ok) {
+      const e = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
+      throw new Error(e.detail || `Request failed (${resp.status})`);
+    }
     removeTyping();
-    sessionId = data.session_id;
-    addMsg("agent", data.reply);
-    renderCart(data.cart_skus);
-    updateGuardrailPanel(data);
-    refreshOps();
-  } catch (e) {
-    removeTyping();
-    addMsg("agent", `⚠️ ${e.message}`);
-    toast(e.message, "error");
+    streamEl = addMsg("agent", "", { streaming: true });
+    const reader = resp.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split("\n"); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const raw = line.slice(6).trim(); if (!raw) continue;
+        try {
+          const evt = JSON.parse(raw);
+          if (evt.type === "token") { accumulated += evt.text; updateStreamBubble(streamEl, accumulated); }
+          else if (evt.type === "done") { finalData = evt; accumulated = evt.reply || accumulated; }
+          else if (evt.type === "error") throw new Error(evt.message || "Stream error");
+        } catch(pe) { if (pe.message !== "Stream error") continue; throw pe; }
+      }
+    }
+  } catch(err) {
+    removeTyping(); setSending(false); abortController = null;
+    if (err.name === "AbortError") {
+      if (streamEl && accumulated) {
+        finaliseStreamBubble(streamEl, accumulated, { stopped: true, retryMsg: msg });
+        conversationHistory.push({ role: "assistant", content: accumulated + " [stopped]" });
+        saveToStorage();
+      } else {
+        if (streamEl) streamEl.remove();
+        conversationHistory.pop();
+      }
+      toast("Generation stopped.", "info"); return;
+    }
+    if (streamEl) finaliseStreamBubble(streamEl, "⚠️ " + err.message, { error: true, retryMsg: msg });
+    else addMsg("agent", "⚠️ " + err.message, { error: true, onRetry: () => retryLastMessage(msg) });
+    conversationHistory.pop();
+    toast(err.message, "error"); return;
   }
+
+  abortController = null; setSending(false);
+  if (streamEl) finaliseStreamBubble(streamEl, accumulated);
+  if (finalData) {
+    sessionId = finalData.session_id;
+    renderCart(finalData.cart_skus);
+    updateGuardrailPanel(finalData);
+    refreshOps();
+  }
+  conversationHistory.push({ role: "assistant", content: accumulated });
+  saveToStorage();
 }
 
 // ── Mandate ──
@@ -808,15 +1118,15 @@ async function buildMandate() {
     document.getElementById("mandateBox").innerHTML = `
       <div class="mandate-header">
         <div>
-          <div class="mandate-id">${m.mandate_id}</div>
-          <span class="badge ${mandateStatusClass(m.status)}">${m.status.toUpperCase()}</span>
-          ${m.block_reason ? `<div style="margin-top:6px;color:var(--red);font-size:12px;">⚠ ${m.block_reason}</div>` : ""}
+          <div class="mandate-id">${escapeHtml(m.mandate_id)}</div>
+          <span class="badge ${mandateStatusClass(m.status)}">${escapeHtml(m.status.toUpperCase())}</span>
+          ${m.block_reason ? `<div style="margin-top:6px;color:var(--red);font-size:12px;">⚠ ${escapeHtml(m.block_reason)}</div>` : ""}
         </div>
         <div class="mandate-total">₹${(m.total_paise/100).toFixed(0)}</div>
       </div>
       <div class="policy-checks">
         ${m.policy_checks.map(c=>`<span class="badge ${c.status==="pass"?"badge-pass":"badge-fail"}">
-          ${c.status==="pass"?"✓":"✗"} ${c.rule}</span>`).join("")}
+          ${c.status==="pass"?"✓":"✗"} ${escapeHtml(c.rule)}</span>`).join("")}
       </div>`;
     document.getElementById("payBtn").disabled = blocked;
     toast(blocked ? `Mandate blocked: ${m.block_reason}` : "Mandate built — review and proceed to pay.", blocked ? "error" : "success");
@@ -842,10 +1152,10 @@ async function confirmAndPay() {
     document.getElementById("orderBox").innerHTML = `
       <div style="margin-bottom:8px;">
         <span class="badge badge-pending">ORDER CREATED</span>
-        <span style="font-family:monospace;font-size:11px;color:var(--muted);margin-left:8px;">${order.order_id}</span>
+        <span style="font-family:monospace;font-size:11px;color:var(--muted);margin-left:8px;">${escapeHtml(order.order_id)}</span>
       </div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Payment link:</div>
-      <a class="order-link" href="${order.payment_link_url}" target="_blank">${order.payment_link_url}</a>`;
+      <a class="order-link" href="${escapeHtml(order.payment_link_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(order.payment_link_url)}</a>`;
     toast("Order created! Use the simulate buttons or pay via the real link.", "success");
     refreshOps();
   } catch (e) {
@@ -861,10 +1171,10 @@ async function triggerWebhook(outcome) {
     const isPaid = order.status === "paid";
     document.getElementById("orderBox").innerHTML = `
       <div style="margin-bottom:8px;">
-        <span class="badge ${isPaid?"badge-pass":"badge-fail"}">${order.status.toUpperCase().replace("_"," ")}</span>
-        <span style="font-family:monospace;font-size:11px;color:var(--muted);margin-left:8px;">${order.order_id}</span>
+        <span class="badge ${isPaid?"badge-pass":"badge-fail"}">${escapeHtml(order.status.toUpperCase().replace("_"," "))}</span>
+        <span style="font-family:monospace;font-size:11px;color:var(--muted);margin-left:8px;">${escapeHtml(order.order_id)}</span>
       </div>
-      ${order.failure_reason ? `<div style="color:var(--red);font-size:12px;">Reason: ${order.failure_reason}</div>` : ""}`;
+      ${order.failure_reason ? `<div style="color:var(--red);font-size:12px;">Reason: ${escapeHtml(order.failure_reason)}</div>` : ""}`;
     toast(isPaid ? "Payment captured successfully! 🎉" : `Payment failed: ${order.failure_reason}`, isPaid ? "success" : "error");
     if (isPaid) {
       // Clear cart UI & reset mandate for next purchase
@@ -872,7 +1182,10 @@ async function triggerWebhook(outcome) {
       currentMandateId = null;
       document.getElementById("payBtn").disabled = true;
       document.getElementById("g-cart").textContent = "₹0";
-      addMsg("agent", "🎉 Payment successful! Your fresh roast is on its way. Let me know if you want to explore more blends!");
+      const reply = "🎉 Payment successful! Your fresh roast is on its way. Let me know if you want to explore more blends!";
+      addMsg("agent", reply);
+      conversationHistory.push({ role: "assistant", content: reply });
+      saveToStorage();
     }
     refreshOps();
   } catch (e) { toast(e.message, "error"); }
@@ -898,8 +1211,8 @@ async function refreshOps() {
       tl.innerHTML = data.events.slice(0, 30).map(e => `
         <div class="audit-event">
           <div class="audit-dot"></div>
-          <span class="audit-type">${e.event_type}</span>
-          <span class="audit-sess">${e.session_id.slice(0,16)}</span>
+          <span class="audit-type">${escapeHtml(e.event_type)}</span>
+          <span class="audit-sess">${escapeHtml(e.session_id.slice(0,16))}</span>
           <span class="audit-ts">${fmtTs(e.ts)}</span>
         </div>`).join("");
     }
@@ -937,8 +1250,8 @@ function renderSteps(activeIdx) {
         ${!isLast ? '<div class="step-connector"></div>' : ""}
       </div>
       <div class="step-content">
-        <div class="step-title">${s.title}</div>
-        ${s.detail ? `<div class="step-detail">${s.detail}</div>` : ""}
+        <div class="step-title">${escapeHtml(s.title)}</div>
+        ${s.detail ? `<div class="step-detail">${escapeHtml(s.detail)}</div>` : ""}
       </div>
     </div>`;
   }).join("");
@@ -980,7 +1293,7 @@ async function runJourneyB() {
     const steps = document.querySelectorAll(".step");
     const last = steps[steps.length-1];
     last.querySelector(".step-detail") || last.querySelector(".step-content").insertAdjacentHTML("beforeend",
-      `<div class="step-detail" style="color:var(--green)">Order ${result.order.order_id} · ₹${(result.order.total_paise/100).toFixed(0)}</div>`);
+      `<div class="step-detail" style="color:var(--green)">Order ${escapeHtml(result.order.order_id)} · ₹${(result.order.total_paise/100).toFixed(0)}</div>`);
     toast("Journey B complete! AI agent bought coffee autonomously. 🤖☕", "success");
     refreshOps();
   } catch (e) {
@@ -994,19 +1307,30 @@ async function runJourneyB() {
 // ── Init ──
 checkHealth();
 refreshOps();
-// Welcome message
-window.addEventListener("DOMContentLoaded", () => {
-  setTimeout(() => addMsg("agent",
-    "Hey! ☕ Welcome to **Kaapi Roasters** — I'm your AI barista!\n\n" +
-    "I can help you find the perfect coffee. Here's what I can do:\n\n" +
-    "• **Browse**: *'Show me your menu'*\n" +
-    "• **Set a budget**: *'Keep it under ₹800'*\n" +
-    "• **Remove your limit**: *'Remove my budget limit'*\n" +
-    "• **Add items**: *'I want filter coffee'*\n" +
-    "• **Checkout**: *'I'm ready to pay'*\n\n" +
-    "What are you in the mood for today? ☕"
-  ), 300);
-});
+
+// Wire scroll listener for jump-to-latest
+const _chatLogEl = document.getElementById("chatLog");
+if (_chatLogEl) _chatLogEl.addEventListener("scroll", onChatScroll, { passive: true });
+
+// Restore previous session from localStorage
+(function restoreSession() {
+  const saved = loadFromStorage();
+  if (!saved) return;
+  sessionId = saved.sessionId || null;
+  conversationHistory = saved.conversationHistory || [];
+  if (!conversationHistory.length) return;
+  // Replay messages
+  const ob = document.getElementById("onboarding");
+  if (ob) ob.style.display = "none";
+  conversationHistory.forEach(turn => {
+    if (turn.role === "user") {
+      const el = addMsg("buyer", turn.content, { onEdit: () => editMessage(el, turn.content) });
+    } else if (turn.role === "assistant") {
+      addMsg("agent", turn.content);
+    }
+  });
+  setTimeout(() => toast("Previous session restored. Click 'New Chat' to start fresh.", "info"), 500);
+})();
 </script>
 </body>
 </html>
