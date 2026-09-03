@@ -253,6 +253,7 @@ class SessionManager:
                 state["cart_skus"].append(sku)
             if state.get("pending_upsell") == sku:
                 state["upsells_accepted"] += 1
+                state["pending_upsell"] = None
 
         if agent_response.upsell_sku:
             state["pending_upsell"] = agent_response.upsell_sku
