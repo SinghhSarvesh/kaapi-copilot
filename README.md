@@ -131,4 +131,4 @@ python -m pytest kaapi_copilot/test/ -v
 - `test_guardrails.py`: 7 tests verifying catalog price mismatch detection, transaction cap enforcement, confirmation requirements, tampering detection, and empty cart blocks.
 - `test_budget_and_cart.py`: 18 tests verifying budget enforcement, cumulative total limits, cart immutability on rejection, `BUDGET_CHECK_FAILED` audit logging, remove-from-cart, subscription removal, bulk prune, mandate budget checks, and MCP bypass prevention.
 - `test_api_regressions.py`: 6 tests verifying webhook parsing, session state handling, 404 safety, and MCP SKU validation.
-- `test_lifecycle_regressions.py`: 6 tests verifying idempotency, webhook payment states, spend double-count prevention, and failed payment recovery.
+- `test_lifecycle_regressions.py`: 6 tests verifying idempotency, webhook payment states, spend double-count prevention, and failed payment recovery
