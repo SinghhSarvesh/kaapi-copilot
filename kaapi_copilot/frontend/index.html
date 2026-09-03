@@ -655,6 +655,7 @@ const LS_KEY = "kaapi_chat_v2";
 let sessionId = null, currentMandateId = null, currentOrderId = null;
 let isSending = false;
 let abortController = null;
+let opsRefreshVersion = 0;
 let conversationHistory = [];  // [{role, content}, ...] for multi-turn context
 let _userScrolledUp = false;
 
@@ -1197,8 +1198,10 @@ function fmtTs(ts) {
 }
 
 async function refreshOps() {
+  const refreshVersion = ++opsRefreshVersion;
   try {
     const data = await api("/audit");
+    if (refreshVersion !== opsRefreshVersion) return;
     const chain = data.chain;
     document.getElementById("chainStatus").innerHTML = `
       <div class="chain-pill ${chain.valid?"chain-valid":"chain-invalid"}">
@@ -1218,6 +1221,7 @@ async function refreshOps() {
     }
 
     const an = await api("/analytics");
+    if (refreshVersion !== opsRefreshVersion) return;
     document.getElementById("s-paid").textContent = an.orders_paid;
     document.getElementById("s-upsell").textContent = an.upsell_attach_rate_pct + "%";
     document.getElementById("s-aov").textContent = an.agent_assisted_aov_paise ? "₹" + (an.agent_assisted_aov_paise/100).toFixed(0) : "₹0";
