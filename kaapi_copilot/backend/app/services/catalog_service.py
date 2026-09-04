@@ -6,6 +6,9 @@ from typing import Optional
 from app.data.catalog_data import CATALOG_BY_SKU, SEED_PRODUCTS, MERCHANT
 from app.models.domain import Product
 
+# Category allowlist — must match MandateEngine.ALLOWED_CATEGORIES exactly.
+_ALLOWED_CATEGORIES = {"powder", "beans", "brew-gear", "subscription", "accessory", "consumable"}
+
 
 class CatalogService:
     def list_products(self, category: Optional[str] = None) -> list:
@@ -28,6 +31,48 @@ class CatalogService:
         if not p or not p.upsell_pairs:
             return None
         return self.get_product(p.upsell_pairs[0])
+
+    def get_upsell_suggestion(
+        self,
+        cart_skus: list,
+        session_budget_paise: Optional[int] = None,
+        already_offered: Optional[list] = None,
+    ) -> Optional[dict]:
+        """
+        Deterministic, policy-gated upsell suggestion. Plain code — no LLM judgment.
+
+        Rules (in order):
+        1. Returns None if cart is empty.
+        2. Looks up the complementary SKU for the first cart item that has one.
+        3. Returns None if the suggested SKU is already in the cart or already_offered.
+        4. Returns None if the suggested SKU's category is not in the allowlist.
+        5. Returns None if a budget is set and adding the suggestion would exceed it.
+        6. Returns the product dict on pass, with an extra 'within_budget' flag.
+        """
+        if not cart_skus:
+            return None
+        already_offered = already_offered or []
+        # Current cart total (authoritative catalog prices, never LLM-stated)
+        cart_total = sum(self.get_price_paise(s) or 0 for s in cart_skus)
+
+        for cart_sku in cart_skus:
+            candidate = self.get_upsell_for(cart_sku)
+            if candidate is None:
+                continue
+            sku = candidate["sku"]
+            # Skip if already in cart or already offered this session
+            if sku in cart_skus or sku in already_offered:
+                continue
+            # Category allowlist gate
+            if candidate.get("category") not in _ALLOWED_CATEGORIES:
+                continue
+            # Budget gate
+            within_budget = True
+            if session_budget_paise is not None:
+                within_budget = (cart_total + candidate["price_paise"]) <= session_budget_paise
+            return {**candidate, "trigger_sku": cart_sku, "within_budget": within_budget}
+
+        return None
 
     def search(self, query: str) -> list:
         q = query.lower().strip()

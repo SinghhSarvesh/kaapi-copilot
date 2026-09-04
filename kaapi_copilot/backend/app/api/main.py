@@ -173,6 +173,25 @@ def _execute_chat(req: ChatRequest):
         "decision_log": response.decision_log,
     })
 
+    # Log UPSELL_SUGGESTED when the agent proposes a complementary product.
+    # This event is the canonical source for the upsell_attach_rate dashboard metric.
+    if response.upsell_sku:
+        state_for_upsell = session_manager.get_state(session_id)
+        budget_for_upsell = state_for_upsell.get("budget_limit_paise")
+        upsell_price = catalog_service.get_price_paise(response.upsell_sku)
+        cart_total_for_upsell = session_manager.get_cart_total_paise(session_id)
+        within_budget = (
+            budget_for_upsell is None
+            or (upsell_price is not None and (cart_total_for_upsell + upsell_price) <= budget_for_upsell)
+        )
+        audit_trail.log("UPSELL_SUGGESTED", session_id, {
+            "suggested_sku": response.upsell_sku,
+            "trigger_skus": response.add_to_cart_skus,
+            "within_budget": within_budget,
+            "upsell_price_paise": upsell_price,
+            "budget_limit_paise": budget_for_upsell,
+        })
+
     # Re-read authoritative state after all mutations
     state = session_manager.get_state(session_id)
     cart_total = session_manager.get_cart_total_paise(session_id)
