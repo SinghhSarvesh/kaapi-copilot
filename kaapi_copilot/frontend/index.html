@@ -633,7 +633,7 @@
         </div>
 
         <!-- Mandate -->
-        <div id="mandateSection" style="display:none">
+        <div id="mandateSection">
           <div class="divider"></div>
           <div class="section-label">📋 Cryptographic Purchase Mandate</div>
           <div class="mandate-box" id="mandateBox"></div>
@@ -936,9 +936,9 @@ function newChat() {
   </div>`;
   renderCart([]);
   updateGuardrailPanel({ budget_limit_paise: null, cart_total_paise: 0, remaining_budget_paise: null, conversation_state: "DISCOVERY", decision_log: [] });
-  const secs = ["mandateSection", "orderSection", "decisionSection"];
+  const secs = ["orderSection", "decisionSection"];
   secs.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = "none"; });
-  const payBtn = document.getElementById("payBtn"); if (payBtn) payBtn.disabled = true;
+  renderExampleMandate();
   setSending(false);
   toast("New chat started ✦", "success");
 }
@@ -1457,8 +1457,38 @@ async function runJourneyB() {
 }
 
 // ── Init ──
+
+// Renders a static, clearly-labeled worked example in mandateBox on first load
+// and after a new-chat reset. Uses the exact same HTML shape as buildMandate()
+// so replacing it with a real mandate requires no markup changes.
+function renderExampleMandate() {
+  const EXAMPLE_CHECKS = [
+    { rule: "price_matches_catalog", status: "pass",  detail: "All line prices verified against catalog" },
+    { rule: "category_allowlist",    status: "pass",  detail: "All SKUs in approved categories" },
+    { rule: "transaction_spend_cap", status: "pass",  detail: "total ₹450 / cap ₹3,000" },
+    { rule: "buyer_budget_check",    status: "pass",  detail: "total ₹450 / budget ₹500" },
+  ];
+  document.getElementById("mandateBox").innerHTML = `
+    <div class="mandate-header" style="opacity:.7;">
+      <div>
+        <div class="mandate-id" style="color:var(--muted);">mnd_example000000</div>
+        <span class="badge badge-pending" style="opacity:.8;">EXAMPLE</span>
+        <div style="margin-top:5px;font-size:11px;color:var(--muted);font-style:italic;">
+          Sample mandate — build a real one by adding items and clicking "Build Mandate"
+        </div>
+      </div>
+      <div class="mandate-total" style="opacity:.6;">₹450</div>
+    </div>
+    <div class="policy-checks">
+      ${EXAMPLE_CHECKS.map(c => `<span class="badge badge-pass" title="${escapeHtml(c.detail)}">
+        ✓ ${escapeHtml(c.rule)}</span>`).join("")}
+    </div>`;
+  document.getElementById("payBtn").disabled = true;
+}
+
 checkHealth();
 refreshOps();
+renderExampleMandate();
 
 // Wire scroll listener for jump-to-latest
 const _chatLogEl = document.getElementById("chatLog");
