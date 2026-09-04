@@ -63,8 +63,12 @@ class RazorpayPaymentProvider(PaymentProvider):
 
     def create_payment_link(self, order_id: str, amount_paise: int, currency: str,
                              description: str, upi_vpa: Optional[str] = None) -> dict:
+        # Razorpay payment link API only accepts: amount, currency, description, notes
+        # (order_id is NOT a valid top-level field for payment_link.create)
         payload = {
-            "amount": amount_paise, "currency": currency, "description": description,
+            "amount": amount_paise,
+            "currency": currency,
+            "description": description,
             "notes": {"order_id": order_id},
         }
         try:
@@ -106,5 +110,6 @@ def verify_webhook_signature(body: bytes, signature: str, webhook_secret: str) -
     """HMAC-SHA256 verification per Razorpay docs. Always run before trusting a payload."""
     import hmac
     import hashlib
-    expected = hmac.new(webhook_secret.encode(), body, digestmod=hashlib.sha256).hexdigest()
+    mac = hmac.new(webhook_secret.encode(), body, digestmod=hashlib.sha256)
+    expected = mac.hexdigest()
     return hmac.compare_digest(expected, signature or "")

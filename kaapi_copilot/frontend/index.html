@@ -1213,16 +1213,21 @@ async function confirmAndPay() {
   if (!currentMandateId) return;
   document.getElementById("payBtn").disabled = true;
   try {
+    // Step 1: Confirm the mandate
     const confirmed = await api("/mandates/confirm", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ mandate_id: currentMandateId, method: "buyer_tap" }),
     });
     if (confirmed.status !== "confirmed") throw new Error("Mandate was not confirmed.");
+
+    // Step 2: Create order + payment link via backend
     const order = await api("/checkout", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ mandate_id: currentMandateId }),
     });
     currentOrderId = order.order_id;
+
+    // Step 3: Show order panel + open real Razorpay payment link
     document.getElementById("orderSection").style.display = "";
     document.getElementById("orderBox").innerHTML = `
       <div style="margin-bottom:8px;">
@@ -1231,13 +1236,16 @@ async function confirmAndPay() {
       </div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Payment link:</div>
       <a class="order-link" href="${escapeHtml(order.payment_link_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(order.payment_link_url)}</a>`;
-    toast("Order created! Use the simulate buttons or pay via the real link.", "success");
+    // Auto-open the payment link in a new tab
+    window.open(order.payment_link_url, "_blank", "noopener,noreferrer");
+    toast("Order created! Payment link opened in a new tab.", "success");
     refreshOps();
   } catch (e) {
     document.getElementById("payBtn").disabled = false;
     toast(e.message, "error");
   }
 }
+
 
 async function triggerWebhook(outcome) {
   if (!currentOrderId) return;

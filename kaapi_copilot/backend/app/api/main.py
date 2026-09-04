@@ -356,7 +356,37 @@ def checkout(req: CheckoutRequest):
         order = order_service.checkout(mandate)
     except GuardrailError as e:
         raise HTTPException(400, str(e))
-    return order.to_dict()
+    result = order.to_dict()
+    # Always include the Razorpay key_id so the frontend can open Standard Checkout
+    result["razorpay_key_id"] = settings.razorpay_key_id
+    return result
+
+
+@app.post("/api/checkout/razorpay_order")
+def create_razorpay_order(req: CheckoutRequest):
+    """
+    Creates a Razorpay Order directly (bypassing payment links) and returns
+    the order_id + key_id needed for Razorpay Standard Checkout (JS modal).
+    This approach has NO quota limits unlike payment links (capped at 30 in test mode).
+    """
+    mandate = order_service.get_mandate(req.mandate_id)
+    if not mandate:
+        raise HTTPException(404, "mandate not found")
+    try:
+        order = order_service.checkout(mandate)
+    except GuardrailError as e:
+        raise HTTPException(400, str(e))
+    return {
+        "order_id": order.order_id,
+        "razorpay_key_id": settings.razorpay_key_id,
+        "amount_paise": order.total_paise,
+        "currency": order.currency,
+        "mandate_id": mandate.mandate_id,
+        "description": f"Kaapi Roasters order for {mandate.buyer_ref}",
+        "payment_link_url": order.payment_link_url,  # may be mock URL if quota hit
+        "use_standard_checkout": True,
+    }
+
 
 
 # ---------------- Webhooks ----------------
