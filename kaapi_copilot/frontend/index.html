@@ -358,6 +358,28 @@
   .toast-msg { flex: 1; color: var(--cream); line-height: 1.4; }
   @keyframes slideUp { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
 
+  /* ── Payment failure recovery timeline ── */
+  .recovery-timeline {
+    margin-top: 12px;
+    background: rgba(224,92,92,.07);
+    border: 1px solid rgba(224,92,92,.22);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 0;
+  }
+  .recovery-step {
+    display: flex; align-items: flex-start; gap: 10px;
+    opacity: 0; transform: translateY(6px);
+    transition: opacity .3s ease, transform .3s ease;
+    padding: 5px 0;
+  }
+  .recovery-step.visible { opacity: 1; transform: translateY(0); }
+  .recovery-step + .recovery-step { border-top: 1px solid rgba(255,255,255,.04); }
+  .recovery-step-icon { font-size: 14px; flex-shrink: 0; padding-top: 1px; }
+  .recovery-step-text { font-size: 12px; color: var(--cream); line-height: 1.45; }
+  .recovery-step-text b { color: var(--red); }
+  .recovery-step:last-child .recovery-step-text b { color: var(--amber); }
+
   /* ── Quick-reply chips ── */
   .chips-row {
     display: flex; flex-wrap: wrap; gap: 6px;
@@ -1170,15 +1192,45 @@ async function triggerWebhook(outcome) {
   try {
     const order = await api(`/demo/trigger-webhook?order_id=${currentOrderId}&outcome=${outcome}`, { method:"POST" });
     const isPaid = order.status === "paid";
-    document.getElementById("orderBox").innerHTML = `
-      <div style="margin-bottom:8px;">
-        <span class="badge ${isPaid?"badge-pass":"badge-fail"}">${escapeHtml(order.status.toUpperCase().replace("_"," "))}</span>
-        <span style="font-family:monospace;font-size:11px;color:var(--muted);margin-left:8px;">${escapeHtml(order.order_id)}</span>
-      </div>
-      ${order.failure_reason ? `<div style="color:var(--red);font-size:12px;">Reason: ${escapeHtml(order.failure_reason)}</div>` : ""}`;
-    toast(isPaid ? "Payment captured successfully! 🎉" : `Payment failed: ${order.failure_reason}`, isPaid ? "success" : "error");
-    if (isPaid) {
-      // Clear cart UI & reset mandate for next purchase
+
+    if (!isPaid) {
+      // ── Failure path: narrated recovery timeline ──
+      const reason = order.failure_reason || "Payment declined.";
+      const steps = [
+        { icon: "✗", text: `<b>Payment declined</b> — ${escapeHtml(reason)}` },
+        { icon: "🔒", text: "<b>Mandate marked payment_failed</b> — no funds moved, guardrails unchanged" },
+        { icon: "🛒", text: "<b>Cart preserved — nothing lost</b> — your items are still held for this session" },
+        { icon: "↻",  text: "<b>You can retry checkout</b> — build a new mandate to try again" },
+      ];
+      const timelineHtml = `
+        <div style="margin-bottom:8px;">
+          <span class="badge badge-fail">${escapeHtml(order.status.toUpperCase().replace("_"," "))}</span>
+          <span style="font-family:monospace;font-size:11px;color:var(--muted);margin-left:8px;">${escapeHtml(order.order_id)}</span>
+        </div>
+        <div class="recovery-timeline" id="recoveryTimeline">
+          ${steps.map((s, i) => `
+            <div class="recovery-step" id="rstep-${i}">
+              <span class="recovery-step-icon">${s.icon}</span>
+              <span class="recovery-step-text">${s.text}</span>
+            </div>`).join("")}
+        </div>`;
+      document.getElementById("orderBox").innerHTML = timelineHtml;
+      // Stagger each step into view
+      steps.forEach((_, i) => {
+        setTimeout(() => {
+          const el = document.getElementById(`rstep-${i}`);
+          if (el) el.classList.add("visible");
+        }, i * 380);
+      });
+      toast(`Payment failed: ${reason}`, "error");
+    } else {
+      // ── Success path — untouched ──
+      document.getElementById("orderBox").innerHTML = `
+        <div style="margin-bottom:8px;">
+          <span class="badge badge-pass">${escapeHtml(order.status.toUpperCase().replace("_"," "))}</span>
+          <span style="font-family:monospace;font-size:11px;color:var(--muted);margin-left:8px;">${escapeHtml(order.order_id)}</span>
+        </div>`;
+      toast("Payment captured successfully! 🎉", "success");
       renderCart([]);
       currentMandateId = null;
       document.getElementById("payBtn").disabled = true;
