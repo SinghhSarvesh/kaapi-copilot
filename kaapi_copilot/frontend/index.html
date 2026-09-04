@@ -319,7 +319,48 @@
 
   /* ── Journey B ── */
   .journey-b { margin-top: 20px; }
-  .steps { display: flex; flex-direction: column; gap: 0; margin-top: 12px; }
+  .jb-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: flex-start;
+  }
+  @media(max-width: 680px) { .jb-layout { grid-template-columns: 1fr; } }
+
+  /* MCP tool-call log */
+  .jb-log {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    min-height: 160px;
+    max-height: 340px;
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface3) transparent;
+  }
+  .jb-log-empty { color: var(--muted); font-size: 12px; font-family: var(--font); }
+  .jb-log-entry {
+    display: flex; align-items: flex-start; gap: 6px;
+    padding: 3px 0;
+    opacity: 0; transform: translateY(4px);
+    transition: opacity .25s ease, transform .25s ease;
+    border-bottom: 1px solid rgba(255,255,255,.03);
+    line-height: 1.45;
+  }
+  .jb-log-entry.visible { opacity: 1; transform: translateY(0); }
+  .jb-log-entry:last-child { border-bottom: none; }
+  .jb-log-arrow { color: var(--amber); flex-shrink: 0; }
+  .jb-log-check { color: var(--green); flex-shrink: 0; }
+  .jb-log-call  { color: var(--cream); }
+  .jb-log-result { color: var(--muted); margin-left: 14px; font-size: 11px; }
+
+  .steps { display: flex; flex-direction: column; gap: 0; }
   .step {
     display: flex; gap: 14px; align-items: flex-start;
     opacity: .35; transition: opacity .4s;
@@ -657,9 +698,20 @@
       <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="runJourneyB()" id="jbBtn">▶ Run Demo</button>
     </div>
     <div class="card-body">
-      <div class="steps" id="jbSteps">
-        <div style="color:var(--muted);font-size:13px;">
-          Click <b>Run Demo</b> to watch an AI agent autonomously browse, cart, and pay via MCP endpoints — fully subject to backend budget and price guardrails.
+      <div class="jb-layout">
+        <div>
+          <div class="section-label" style="margin-bottom:10px;">Agent Steps</div>
+          <div class="steps" id="jbSteps">
+            <div style="color:var(--muted);font-size:13px;">
+              Click <b>Run Demo</b> to watch an AI agent autonomously browse, cart, and pay via MCP endpoints — fully subject to backend budget and price guardrails.
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="section-label" style="margin-bottom:10px;">MCP Tool Calls</div>
+          <div class="jb-log" id="jbLog">
+            <div class="jb-log-empty">No calls yet — demo not started</div>
+          </div>
         </div>
       </div>
     </div>
@@ -1313,36 +1365,79 @@ function renderSteps(activeIdx) {
   }).join("");
 }
 
+// Append a single line to the MCP tool-call log and animate it in.
+// type: "call" (→ amber arrow) | "result" (✓ green, indented)
+function jbLogAppend(text, type = "call") {
+  const log = document.getElementById("jbLog");
+  // Clear placeholder on first real entry
+  const empty = log.querySelector(".jb-log-empty");
+  if (empty) empty.remove();
+
+  const row = document.createElement("div");
+  row.className = "jb-log-entry";
+
+  const icon = document.createElement("span");
+  icon.className = type === "result" ? "jb-log-check" : "jb-log-arrow";
+  icon.textContent = type === "result" ? "✓" : "→";
+
+  const body = document.createElement("span");
+  body.className = type === "result" ? "jb-log-result" : "jb-log-call";
+  body.textContent = text;
+
+  row.appendChild(icon);
+  row.appendChild(body);
+  log.appendChild(row);
+
+  // Animate in on next frame
+  requestAnimationFrame(() => requestAnimationFrame(() => row.classList.add("visible")));
+  // Keep scrolled to bottom
+  log.scrollTop = log.scrollHeight;
+}
+
 async function runJourneyB() {
   const btn = document.getElementById("jbBtn");
   btn.disabled = true; btn.textContent = "Running…";
   const sess = "mcp_" + Date.now();
   const delay = ms => new Promise(r => setTimeout(r, ms));
 
+  // Reset log panel
+  document.getElementById("jbLog").innerHTML = "";
+
   try {
     renderSteps(0);
     await delay(600);
-    await api("/mcp/list_products");
+    jbLogAppend("list_products(category=\"filter-coffee\")");
+    const products = await api("/mcp/list_products");
+    jbLogAppend(`${products.products?.length ?? "?"} products returned`, "result");
 
     renderSteps(1);
     await delay(600);
-    await api("/mcp/add_to_cart", { method:"POST", headers:{"Content-Type":"application/json"},
+    jbLogAppend(`add_to_cart(session_id="${sess}", sku="kr-filter-500")`);
+    const r1 = await api("/mcp/add_to_cart", { method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ session_id: sess, sku: "kr-filter-500" }) });
+    jbLogAppend(`cart total ₹${((r1.new_cart_total_paise||0)/100).toFixed(0)} · item added`, "result");
 
     renderSteps(2);
     await delay(600);
-    await api("/mcp/add_to_cart", { method:"POST", headers:{"Content-Type":"application/json"},
+    jbLogAppend(`add_to_cart(session_id="${sess}", sku="kr-steel-filter")`);
+    const r2 = await api("/mcp/add_to_cart", { method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ session_id: sess, sku: "kr-steel-filter" }) });
+    jbLogAppend(`cart total ₹${((r2.new_cart_total_paise||0)/100).toFixed(0)} · item added`, "result");
 
     renderSteps(3);
     await delay(600);
+    jbLogAppend(`create_checkout_mandate(session_id="${sess}", buyer_ref="external_ai_agent")`);
     const mandate = await api("/mcp/create_checkout_mandate", { method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ session_id: sess, buyer_ref: "external_ai_agent" }) });
+    const checks = mandate.policy_checks?.filter(c => c.status === "pass").length ?? "?";
+    jbLogAppend(`mandate: ${mandate.status} · total ₹${((mandate.total_paise||0)/100).toFixed(0)} · ${checks} checks passed`, "result");
 
     renderSteps(4);
     await delay(600);
+    jbLogAppend(`confirm_and_pay(mandate_id="${mandate.mandate_id}")`);
     const result = await api("/mcp/confirm_and_pay", { method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ mandate_id: mandate.mandate_id }) });
+    jbLogAppend(`payment: ${result.order?.status ?? "success"} · order ${result.order?.order_id ?? ""}`, "result");
 
     renderSteps(5);
     // Update the last step detail with real order info
@@ -1353,6 +1448,7 @@ async function runJourneyB() {
     toast("Journey B complete! AI agent bought coffee autonomously. 🤖☕", "success");
     refreshOps();
   } catch (e) {
+    jbLogAppend(`error: ${e.message}`, "result");
     toast(e.message, "error");
     renderSteps(-1);
   } finally {
