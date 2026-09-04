@@ -10,6 +10,8 @@ Hard constraints implemented here:
   - every mandate is written to the audit log BEFORE any Razorpay call
   - only a `confirmed` mandate may trigger create_order / create_payment_link
 """
+import json
+import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 from app.core.config import settings
@@ -29,13 +31,34 @@ class GuardrailError(Exception):
 
 class MandateEngine:
     def __init__(self):
-        self._session_spend_paise = {}  # session_id -> cumulative CONFIRMED/paid spend
+        self._db_path = settings.db_path
+        self._init_db()
+
+    def _conn(self):
+        return sqlite3.connect(self._db_path)
+
+    def _init_db(self):
+        with self._conn() as c:
+            c.execute("PRAGMA journal_mode=WAL")
+            c.execute("""CREATE TABLE IF NOT EXISTS session_state (
+                session_id TEXT PRIMARY KEY,
+                spend_paise INTEGER NOT NULL DEFAULT 0,
+                cart_skus TEXT NOT NULL DEFAULT '[]'
+            )""")
 
     def _record_session_spend(self, session_id: str, amount_paise: int):
-        self._session_spend_paise[session_id] = self._session_spend_paise.get(session_id, 0) + amount_paise
+        with self._conn() as c:
+            c.execute("""INSERT INTO session_state (session_id, spend_paise, cart_skus)
+                         VALUES (?, ?, '[]')
+                         ON CONFLICT(session_id) DO UPDATE SET
+                             spend_paise = spend_paise + excluded.spend_paise""",
+                      (session_id, amount_paise))
 
     def get_session_spend(self, session_id: str) -> int:
-        return self._session_spend_paise.get(session_id, 0)
+        with self._conn() as c:
+            row = c.execute("SELECT spend_paise FROM session_state WHERE session_id=?",
+                            (session_id,)).fetchone()
+        return row[0] if row else 0
 
     def build_mandate(self, session_id: str, buyer_ref: str, cart_skus: list,
                        rationale: str, agent_stated_prices: Optional[dict] = None,

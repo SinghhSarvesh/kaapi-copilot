@@ -64,9 +64,25 @@ async def request_observability_middleware(request: Request, call_next):
             "duration_ms": duration_ms,
         }))
 
-# In-memory cart store for the MCP (Journey B) tool surface, keyed by mcp session id
-# Uses the same session_manager so budget enforcement is shared.
-_mcp_carts: dict = {}
+# MCP (Journey B) cart helpers — backed by the session_state SQLite table
+# (same db that MandateEngine uses; table is guaranteed created by mandate_engine init).
+def _mcp_get_cart(session_id: str) -> list:
+    import json, sqlite3
+    from app.core.config import settings
+    with sqlite3.connect(settings.db_path) as c:
+        row = c.execute("SELECT cart_skus FROM session_state WHERE session_id=?",
+                        (session_id,)).fetchone()
+    return json.loads(row[0]) if row else []
+
+
+def _mcp_set_cart(session_id: str, skus: list) -> None:
+    import json, sqlite3
+    from app.core.config import settings
+    with sqlite3.connect(settings.db_path) as c:
+        c.execute("""INSERT INTO session_state (session_id, spend_paise, cart_skus)
+                     VALUES (?, 0, ?)
+                     ON CONFLICT(session_id) DO UPDATE SET cart_skus = excluded.cart_skus""",
+                  (session_id, json.dumps(skus)))
 
 
 class ChatRequest(BaseModel):
@@ -414,7 +430,7 @@ def mcp_add_to_cart(req: McpCartRequest):
         raise HTTPException(400, result.get("message", result.get("reason", "Cannot add item")))
 
     state = session_manager.get_state(req.session_id)
-    _mcp_carts[req.session_id] = state["cart_skus"]
+    _mcp_set_cart(req.session_id, state["cart_skus"])
     return {
         "cart_skus": state["cart_skus"],
         "new_cart_total_paise": result.get("new_cart_total_paise"),
@@ -435,7 +451,7 @@ def mcp_remove_from_cart(req: McpRemoveRequest):
     if not result.get("removed"):
         raise HTTPException(400, result.get("message", "Item not in cart"))
     state = session_manager.get_state(req.session_id)
-    _mcp_carts[req.session_id] = state["cart_skus"]
+    _mcp_set_cart(req.session_id, state["cart_skus"])
     total = session_manager.get_cart_total_paise(req.session_id)
     return {
         "removed": True,
@@ -451,7 +467,7 @@ def mcp_get_cart(session_id: str):
         state = session_manager.get_state(session_id)
         cart_skus = state["cart_skus"]
     except KeyError:
-        cart_skus = _mcp_carts.get(session_id, [])
+        cart_skus = _mcp_get_cart(session_id)
     items = [catalog_service.get_product(s) for s in cart_skus]
     valid_items = [i for i in items if i is not None]
     total = sum(i["price_paise"] for i in valid_items)
@@ -476,7 +492,7 @@ def mcp_create_checkout_mandate(req: McpMandateRequest):
         cart = state["cart_skus"]
         budget = state.get("budget_limit_paise")
     except KeyError:
-        cart = _mcp_carts.get(req.session_id, [])
+        cart = _mcp_get_cart(req.session_id)
         budget = None
     if not cart:
         raise HTTPException(400, "cart is empty")
@@ -491,7 +507,7 @@ def mcp_create_checkout_mandate(req: McpMandateRequest):
         session_manager.clear_cart(req.session_id)
     except KeyError:
         pass
-    _mcp_carts[req.session_id] = []
+    _mcp_set_cart(req.session_id, [])
     return mandate.to_dict()
 
 
