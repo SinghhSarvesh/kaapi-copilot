@@ -82,53 +82,63 @@ Before any payment call can occur, `MandateEngine.build_mandate()` executes 5 de
 
 ---
 
+## 🏃 Running Locally & Testing
+
+```powershell
+# Run the complete test suite (74 tests, 9 modules)
+python -m pytest kaapi_copilot/test/ -v
+```
+
+| Test Module | Tests | Coverage Area |
+|---|---|---|
+| `test_analytics.py` | 11 | Orders paid, upsell attach rate, AOV lift metrics |
+| `test_api_regressions.py` | 6 | API endpoint contracts, real-style webhook mapping |
+| `test_budget_and_cart.py` | 25 | Hard budget enforcement, over-limit rejection, bulk pruning, remove-from-cart |
+| `test_groq_prompt_injection_boundary.py` | 5 | Prompt injection resistance, LLM boundary isolation |
+| `test_guardrails.py` | 7 | 5-stage mandate policy engine, spend caps, catalog price re-verification |
+| `test_idempotency_and_injection.py` | 7 | Duplicate checkout prevention, idempotent webhooks, injection hardening |
+| `test_lifecycle_regressions.py` | 4 | Full session lifecycle, payment failure recovery, cart hold |
+| `test_reference_resolution.py` | 3 | Natural language item references, contextual intent disambiguation |
+| `test_upsell.py` | 6 | Upsell suggestion, one-per-turn cap, budget-aware upsell gating |
+| **Total** | **74** | **All passing ✅** |
+
+---
+
+## ⚠️ Known Limitations
+
+Spend caps and cart state (`_session_spend_paise`, `_mcp_carts`) are held in an in-memory Python dict and are not persisted to SQLite. This is intentional for a single-process demo deployment — all guardrail arithmetic remains authoritative — but these structures would need to migrate into the existing SQLite store to stay correct across server restarts or when running multiple Uvicorn worker processes. Additionally, MCP routes (`/api/mcp/*`) accept `session_id` as a plain request field with no bearer-token or cookie-based ownership check; this is acceptable for a test-mode demo environment but a production deployment would require proper session authentication to prevent one agent from acting on another's cart or mandate.
+
+---
+
+## 🔗 Protocol Alignment
+
+Kaapi Copilot's architecture is conceptually aligned with several emerging agentic-commerce protocols, though it does not formally implement any of them.
+
+**Purchase Mandate / MandateEngine** is conceptually aligned with AP2's *mandate* concept: before any money moves, `MandateEngine.build_mandate()` produces an explicit, inspectable authorization object that captures the exact cart, verified prices, and all guardrail outcomes. Money only moves after this object exists and is separately confirmed — the same philosophy as AP2's model of an explicit, structured authorization step between intent and execution.
+
+**Explicit buyer/MCP confirmation step** is conceptually aligned with NPCI UAP's *user-authorization pattern*: neither Journey A nor Journey B can trigger a payment without an affirmative confirmation action (a buyer tap on the UI, or an explicit `confirm_purchase` MCP tool call). The system is designed so that no payment path is reachable without that step.
+
+**MCP tool surface (`/api/mcp/*`)** is conceptually aligned with agent-to-agent commerce protocols such as ACP and x402 in that it exposes the storefront as an agent-readable, tool-callable API rather than a human-only UI — enabling external AI buyer agents to discover products, manage carts, and initiate payments programmatically through a structured tool interface.
+
+---
+
 ## ⚙️ Environment Variables
 
-Copy `kaapi_copilot/backend/.env.example` to `kaapi_copilot/backend/.env`:
+Copy `kaapi_copilot/backend/.env.example` to `kaapi_copilot/backend/.env`. Key variables:
 
 ```env
-# Agent Provider ("groq" or "mock")
-AGENT_MODE=groq
+AGENT_MODE=groq                        # "groq" or "mock"
 GROQ_API_KEY=gsk_...
-GROQ_MODEL=openai/gpt-oss-120b
+GROQ_MODEL=llama-3.3-70b-versatile
 
-# Payment Provider ("razorpay" or "mock")
-PAYMENT_MODE=razorpay
+PAYMENT_MODE=razorpay                  # "razorpay" or "mock"
 RAZORPAY_KEY_ID=rzp_test_...
 RAZORPAY_KEY_SECRET=...
 RAZORPAY_WEBHOOK_SECRET=...
 
-# Guardrail & App Config
-ALLOWED_ORIGINS=*
+ALLOWED_ORIGINS=*                      # See note below
 TRANSACTION_SPEND_CAP_PAISE=300000
 SESSION_SPEND_CAP_PAISE=1000000
 ```
 
----
-
-## 🏃 Running Locally
-
-### 1. Run Backend
-```powershell
-cd kaapi_copilot/backend
-pip install -r requirements.txt
-uvicorn app.api.main:app --reload --port 8000
-```
-
-### 2. Run Frontend
-Open `kaapi_copilot/frontend/index.html` in any browser.
-
-### 3. Run Automated Tests
-```powershell
-# Run the complete test suite (37 tests)
-python -m pytest kaapi_copilot/test/ -v
-```
-
----
-
-## 🧪 Test Suite Summary (37 Tests Passing)
-
-- `test_guardrails.py`: 7 tests verifying catalog price mismatch detection, transaction cap enforcement, confirmation requirements, tampering detection, and empty cart blocks.
-- `test_budget_and_cart.py`: 18 tests verifying budget enforcement, cumulative total limits, cart immutability on rejection, `BUDGET_CHECK_FAILED` audit logging, remove-from-cart, subscription removal, bulk prune, mandate budget checks, and MCP bypass prevention.
-- `test_api_regressions.py`: 6 tests verifying webhook parsing, session state handling, 404 safety, and MCP SKU validation.
-- `test_lifecycle_regressions.py`: 6 tests verifying idempotency, webhook payment states, spend double-count prevention, and failed payment recovery
+`ALLOWED_ORIGINS=*` is suitable for local development and demo use only — a production deployment should set this to the exact frontend origin (e.g. `https://your-frontend.example.com`) to restrict cross-origin access. Incoming Razorpay webhook payloads are HMAC-SHA256 verified via `verify_webhook_signature()` in `razorpay_provider.py` before any order state is trusted, using `hmac.compare_digest` for constant-time comparison to prevent timing attacks.
